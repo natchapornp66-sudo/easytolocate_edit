@@ -82,11 +82,18 @@ const Home = () => {
 
   const filtered = items
     .filter((item) => {
+
+      console.log('Selected Category:', category, 'Item Category:', item.category_name);
+
       const matchSearch =
         item.title?.toLowerCase().includes(search.toLowerCase()) ||
         item.description?.toLowerCase().includes(search.toLowerCase());
 
-      const matchCategory = category === 'ทั้งหมด' || item.category_name === category || item.category === category;
+      const matchCategory =
+        category === 'ทั้งหมด' ||
+        item.category_name?.includes(category) ||
+        item.category?.includes(category) ||
+        String(item.category_id) === String(category);
       const matchDistance = !item.distance_km || item.distance_km <= maxDistance;
 
       return matchSearch && matchCategory && matchDistance;
@@ -161,8 +168,8 @@ const Home = () => {
                       setShowDistanceFilter(false);
                     }}
                     className={`block w-full rounded-lg px-3 py-2 text-left text-xs transition-colors ${maxDistance === opt.value
-                        ? 'bg-primary text-primary-foreground font-semibold'
-                        : 'text-foreground hover:bg-muted'
+                      ? 'bg-primary text-primary-foreground font-semibold'
+                      : 'text-foreground hover:bg-muted'
                       }`}
                   >
                     {opt.label}

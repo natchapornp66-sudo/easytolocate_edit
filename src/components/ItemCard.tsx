@@ -11,11 +11,11 @@ const ItemCard = ({ item }: ItemCardProps) => {
   // 1. ดึง ID (รองรับทั้ง item_id และ id)
   const itemId = item.item_id || item.id;
 
-  // 2. ดึงราคา (รองรับ price_per_day, rental_price_per_day, price)
-  const price = item.price_per_day ?? item.rental_price_per_day ?? item.price;
+  // 2. ดึงราคา (เพิ่ม daily_price เข้าไปรองรับด้วย)
+  const price = item.daily_price ?? item.price_per_day ?? item.rental_price_per_day ?? item.price;
 
-  // 3. ดึงระยะทาง
-  const distance = item.distance_km ?? item.distance;
+  // 3. ดึงระยะทาง (รองรับทั้ง distance_km, distance หรือคำนวณจาก lat/lng ถ้ามี)
+  const distance = item.distance_km ?? item.distance ?? item.lat_lng;
 
   // 4. ดึงชื่อผู้ลงประกาศ
   const ownerName = item.owner_name ?? item.users?.full_name ?? item.owner?.full_name;
