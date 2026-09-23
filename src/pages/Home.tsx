@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Search, Bell, MapPin, SlidersHorizontal } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { Category, Item } from '@/types';
+import { CategoryName } from '@/types';
 import { mockNotifications } from '@/data/mockData';
 import BottomNav from '@/components/BottomNav';
 import ItemCard from '@/components/ItemCard';
 import CategoryFilter from '@/components/CategoryFilter';
 import { useNavigate } from 'react-router-dom';
-import { apiGet } from '@/lib/api';
 
 const distanceOptions = [
   { label: 'ทั้งหมด', value: Infinity },
@@ -20,10 +19,10 @@ const distanceOptions = [
 const Home = () => {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
-  const [category, setCategory] = useState<Category>('ทั้งหมด');
+  const [category, setCategory] = useState<CategoryName>('ทั้งหมด');
   const [maxDistance, setMaxDistance] = useState(Infinity);
   const [showDistanceFilter, setShowDistanceFilter] = useState(false);
-  const [items, setItems] = useState<Item[]>([]);
+  const [items, setItems] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -32,17 +31,34 @@ const Home = () => {
 
     const loadItems = async () => {
       try {
-        const response = await apiGet<any>('/api/items');
-        // 👇 ใส่บรรทัดนี้เพิ่มเข้าไปเพื่อดูข้อมูลจริงจาก Database ใน Console
-        console.log("=== ข้อมูลจาก API ===", response);
-        if (isMounted) {
-          // ดักจับทั้งกรณี response เป็น Array ตรงๆ หรือครอบด้วย .data
-          const actualData = Array.isArray(response)
-            ? response
-            : (Array.isArray(response?.data) ? response.data : []);
+        const res = await fetch('/api/items');
+        if (res.ok) {
+          const response = await res.json();
+          if (isMounted) {
+            const rawData = Array.isArray(response)
+              ? response
+              : Array.isArray(response?.data)
+                ? response.data
+                : [];
 
-          setItems(actualData);
-          setError('');
+            // ทำการ Map ฟิลด์ข้อมูลให้ครอบคลุมชื่อคอลัมน์จาก DB ทุกรูปแบบ
+            const mappedData = rawData.map((item: any) => ({
+              ...item,
+              id: item.item_id || item.id,
+              title: item.title || item.name || 'ไม่มีชื่อสินค้า',
+              // ดึงราคาจากทุกชื่อฟิลด์ที่เป็นไปได้
+              price_per_day: Number(item.price_per_day || item.rental_price_per_day || item.price || item.rental_fee || 0),
+              rental_price_per_day: Number(item.price_per_day || item.rental_price_per_day || item.price || item.rental_fee || 0),
+              // ดึงรูปภาพจากทุกชื่อฟิลด์
+              image_url: item.image_url || item.images || item.image || item.photo,
+              images: item.images || item.image_url || item.image || [],
+              category_name: item.category_name || item.category || 'ทั่วไป',
+              distance_km: item.distance_km || item.distance || 0,
+            }));
+
+            setItems(mappedData);
+            setError('');
+          }
         }
       } catch (err) {
         if (isMounted) {
@@ -62,14 +78,17 @@ const Home = () => {
     };
   }, []);
 
-  const unreadCount = mockNotifications.filter((n) => !n.read).length;
+  const unreadCount = mockNotifications.filter((n: any) => !(n.is_read ?? n.read)).length;
 
   const filtered = items
     .filter((item) => {
-      const matchSearch = item.title?.toLowerCase().includes(search.toLowerCase()) ||
+      const matchSearch =
+        item.title?.toLowerCase().includes(search.toLowerCase()) ||
         item.description?.toLowerCase().includes(search.toLowerCase());
-      const matchCategory = category === 'ทั้งหมด' || item.category === category;
+
+      const matchCategory = category === 'ทั้งหมด' || item.category_name === category || item.category === category;
       const matchDistance = !item.distance_km || item.distance_km <= maxDistance;
+
       return matchSearch && matchCategory && matchDistance;
     })
     .sort((a, b) => (a.distance_km || 999) - (b.distance_km || 999));
@@ -115,7 +134,7 @@ const Home = () => {
 
       {/* Categories */}
       <div className="px-4 pt-4">
-        <CategoryFilter selected={category} onSelect={setCategory} />
+        <CategoryFilter selected={category as any} onSelect={(cat) => setCategory(cat as any)} />
       </div>
 
       {/* Items Grid */}
@@ -137,8 +156,13 @@ const Home = () => {
                 {distanceOptions.map((opt) => (
                   <button
                     key={opt.value}
-                    onClick={() => { setMaxDistance(opt.value); setShowDistanceFilter(false); }}
-                    className={`block w-full rounded-lg px-3 py-2 text-left text-xs transition-colors ${maxDistance === opt.value ? 'bg-primary text-primary-foreground font-semibold' : 'text-foreground hover:bg-muted'
+                    onClick={() => {
+                      setMaxDistance(opt.value);
+                      setShowDistanceFilter(false);
+                    }}
+                    className={`block w-full rounded-lg px-3 py-2 text-left text-xs transition-colors ${maxDistance === opt.value
+                        ? 'bg-primary text-primary-foreground font-semibold'
+                        : 'text-foreground hover:bg-muted'
                       }`}
                   >
                     {opt.label}
@@ -164,8 +188,8 @@ const Home = () => {
         {!isLoading && !error && (
           <>
             <div className="grid grid-cols-2 gap-3">
-              {filtered.map((item: any) => (
-                <ItemCard key={item.item_id || item.id} item={item} />
+              {filtered.map((item) => (
+                <ItemCard key={item.id} item={item} />
               ))}
             </div>
             {filtered.length === 0 && (
