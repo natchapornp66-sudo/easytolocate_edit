@@ -51,6 +51,7 @@ const ItemDetail = () => {
         const itemRes = await fetch(`/api/items/${id}`);
         if (itemRes.ok) {
           const itemData = await itemRes.json();
+          console.log('ITEM DATA:', itemData);
           if (isMounted) setItem(itemData.data || itemData);
         }
 
@@ -97,19 +98,29 @@ const ItemDetail = () => {
     );
   }
 
-  const pricePerDay = Number(item.rental_price_per_day || item.price_per_day || 0);
+  const pricePerDay = Number(item.rental_price_per_day || item.price_per_day || item.price || item.daily_price || 0);
   const totalRental = pricePerDay * days;
   const platformFee = Math.round(totalRental * PLATFORM_FEE_RATE);
   const totalPayment = totalRental;
   const today = new Date().toISOString().split('T')[0];
   const endDate = new Date(Date.now() + days * 86400000).toISOString().split('T')[0];
 
-  const images = Array.isArray(item.images) && item.images.length > 0
-    ? item.images
-    : [item.image_url || 'https://via.placeholder.com/400x300?text=No+Image'];
+  // ตรวจสอบและจัดการลิงก์รูปภาพให้ถูกต้อง
+  let rawImage = item.image_url || item.image || (Array.isArray(item.images) ? item.images[0] : null);
 
-  const ownerName = item.owner_name || item.owner?.full_name || 'เจ้าของสิ่งของ';
-  const ownerId = item.owner_id || item.owner?.id;
+  // ถ้าเป็น example.com ให้ใช้รูปภาพ Placeholder ทั่วไป หรือดึงจาก Unsplash Source ตามชื่อสินค้า/หมวดหมู่แทน
+  if (!rawImage || rawImage.includes('example.com')) {
+    rawImage = `https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=500`; // ใช้รูปเครื่องมือช่าง/อุปกรณ์ทั่วไปแทน
+  } else if (!rawImage.startsWith('http') && !rawImage.startsWith('/')) {
+    rawImage = `http://localhost:5000/uploads/${rawImage}`;
+  } else if (rawImage.startsWith('/')) {
+    rawImage = `http://localhost:5000${rawImage}`;
+  }
+
+  const images = [rawImage];
+
+  const ownerName = item.owner_name || item.owner?.full_name || item.user_name || 'เจ้าของสิ่งของ';
+  const ownerId = item.owner_id || item.owner?.id || item.user_id || item.userId;
 
   const handleBorrow = () => {
     if (!user) {
@@ -223,7 +234,22 @@ const ItemDetail = () => {
               {item.distance_km || 0} กม.
             </div>
           </div>
-          <Button variant="outline" size="sm" className="gap-1" onClick={() => navigate(`/chat/${ownerId || ''}`)}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1"
+            onClick={() => {
+              const targetOwnerId = ownerId || item.lender_id || item.user_id || item.userId;
+
+              if (!targetOwnerId) {
+                toast({ title: 'ไม่พบข้อมูลเจ้าของสินค้า', variant: 'destructive' });
+                return;
+              }
+
+              // พาไปที่หน้าแชทหลัก พร้อมแนบ lender_id ไปด้วย เพื่อให้ฝั่งหน้าแชทไปจัดการต่อ
+              navigate(`/chat?recipient=${targetOwnerId}&item=${item.item_id || item.id}`);
+            }}
+          >
             <MessageCircle className="h-3.5 w-3.5" />
             แชท
           </Button>
