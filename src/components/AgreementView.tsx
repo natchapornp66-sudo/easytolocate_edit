@@ -13,13 +13,18 @@ export const AgreementView: React.FC<{ rentalId: string; isLender: boolean }> = 
 
     const handleAccept = async () => {
         if (!agreement) return;
-        const res = await signAgreement({
-            rental_id: rentalId,
-            contract_terms: agreement.contract_terms,
-            borrower_accepted: isLender ? agreement.borrower_accepted : true,
-            lender_accepted: isLender ? true : agreement.lender_accepted,
-        });
-        if (res.success) setAgreement(res.data);
+
+        try {
+            const res = await signAgreement({
+                rental_id: rentalId,
+            });
+
+            if (res.success) {
+                setAgreement(res.data);
+            }
+        } catch (error) {
+            console.error('Sign agreement error:', error);
+        }
     };
 
     if (!agreement) return <div>กำลังโหลดข้อมูลสัญญา...</div>;

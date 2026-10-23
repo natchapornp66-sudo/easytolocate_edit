@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Mail, Lock, Eye, EyeOff, X, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { loginWithCredentials } from '@/lib/auth';
-
+import { setAuthSession } from '@/lib/auth';
 const Login = () => {
   const navigate = useNavigate();
   const [email, setEmail] = useState('somchai@example.com');
@@ -12,21 +11,52 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const session = loginWithCredentials(email, password);
+    setError('');
 
-    if (!session) {
-      setError('อีเมลหรือรหัสผ่านไม่ถูกต้อง');
-      return;
+    try {
+      const response = await fetch('http://localhost:5000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setError(data.error || 'อีเมลหรือรหัสผ่านไม่ถูกต้อง');
+        return;
+      }
+
+      const userData = data.data || data.user || data;
+
+      // บันทึก Token ปกติ (เผื่อไฟล์อื่นๆ ยังเรียกใช้ผ่าน 'token')
+      localStorage.setItem('token', data.token || userData.token || '');
+
+      // บันทึก Auth Session ผ่านฟังก์ชันกลาง เพื่อให้คีย์ 'easy_to_locate_auth' และ role ถูกต้อง
+      setAuthSession({
+        userId: userData.user_id || userData.id,
+        email: userData.email || email,
+        fullName:
+          userData.full_name ||
+          userData.fullName ||
+          userData.name ||
+          'ผู้ใช้งาน',
+        role: userData.role || 'user',
+      });
+      navigate('/');
+    } catch (err) {
+      console.error('Login error:', err);
+      setError('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
     }
-
-    navigate(session.role === 'admin' ? '/admin/dashboard' : '/');
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-900/60 px-4 py-10 backdrop-blur-sm">
-      <div className="relative w-full max-w-md overflow-hidden rounded-[28px] border border-white/10 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.25)]">
+    <div className="relative flex min-h-dvh w-full items-center justify-center bg-gradient-to-br from-slate-950 via-blue-950 to-blue-700 px-4 py-10">
+      <div className="relative w-full max-w-md overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
         <button
           type="button"
           onClick={() => navigate('/')}
@@ -36,7 +66,7 @@ const Login = () => {
           <X className="h-4 w-4" />
         </button>
 
-        <div className="bg-gradient-to-br from-primary/10 via-white to-white px-6 pb-6 pt-8 text-center">
+        <div className="bg-gradient-to-b from-blue-50 via-white to-white px-6 pb-5 pt-10 text-center sm:px-8">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary shadow-sm">
             <MapPinIcon className="h-8 w-8" />
           </div>

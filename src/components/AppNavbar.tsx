@@ -1,4 +1,15 @@
 import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  MapPin,
+  Home,
+  ClipboardList,
+  PlusCircle,
+  MessageCircle,
+  UserRound,
+  LogOut,
+  LayoutDashboard,
+} from 'lucide-react';
+
 import { clearAuthSession, getAuthSession } from '@/lib/auth';
 
 const AppNavbar = () => {
@@ -10,63 +21,123 @@ const AppNavbar = () => {
     return null;
   }
 
+  const isGuest = session.role === 'guest';
+  const isAdmin = session.role === 'admin';
+
+  const handleLogout = () => {
+    clearAuthSession();
+    navigate('/');
+  };
+
+  const menuItems = [
+    { label: 'หน้าแรก', path: '/', icon: Home },
+    { label: 'รายการเช่า', path: '/transactions', icon: ClipboardList },
+    { label: 'ลงประกาศ', path: '/post-item', icon: PlusCircle },
+    { label: 'แชต', path: '/chat', icon: MessageCircle },
+  ];
+
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-background/90 backdrop-blur-sm">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-        <button onClick={() => navigate('/')} className="text-sm font-bold text-foreground font-display">
-          Easy to Locate
+    <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur-xl">
+      <div className="mx-auto flex h-[76px] w-full max-w-[1440px] items-center justify-between gap-6 px-5 sm:px-8 lg:px-12">
+
+        {/* Logo */}
+        <button
+          type="button"
+          onClick={() => navigate('/')}
+          className="flex shrink-0 items-center gap-3 text-left"
+        >
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-md shadow-blue-200">
+            <MapPin className="h-6 w-6" />
+          </div>
+
+          <div>
+            <h1 className="text-lg font-extrabold tracking-tight text-slate-900">
+              Easy to <span className="text-blue-600">Locate</span>
+            </h1>
+            <p className="text-[11px] text-slate-500">
+              เช่าของใกล้ตัว ง่ายกว่าที่เคย
+            </p>
+          </div>
         </button>
 
-        <div className="flex items-center gap-2">
-          {session.role === 'guest' ? (
+        {/* Desktop Navigation */}
+        {!isGuest && (
+          <nav className="hidden items-center gap-1 lg:flex">
+            {menuItems.map((item) => {
+              const Icon = item.icon;
+              const active =
+                item.path === '/'
+                  ? location.pathname === '/' || location.pathname === '/items'
+                  : location.pathname === item.path ||
+                  location.pathname.startsWith(`${item.path}/`);
+
+              return (
+                <button
+                  key={item.path}
+                  type="button"
+                  onClick={() => navigate(item.path)}
+                  className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors ${active
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </button>
+              );
+            })}
+          </nav>
+        )}
+
+        {/* Right Actions */}
+        <div className="flex shrink-0 items-center gap-2">
+          {isGuest ? (
             <>
               <button
+                type="button"
                 onClick={() => navigate('/login')}
-                className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
-                Login
+                เข้าสู่ระบบ
               </button>
+
               <button
+                type="button"
                 onClick={() => navigate('/register')}
-                className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+                className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
               >
-                Register
-              </button>
-            </>
-          ) : session.role === 'admin' ? (
-            <>
-              <button
-                onClick={() => navigate('/admin/dashboard')}
-                className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700"
-              >
-                Admin Panel
-              </button>
-              <button
-                onClick={() => {
-                  clearAuthSession();
-                  navigate('/');
-                }}
-                className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
-              >
-                Logout
+                สมัครสมาชิก
               </button>
             </>
           ) : (
             <>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/admin/dashboard')}
+                  className="hidden items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 sm:flex"
+                >
+                  <LayoutDashboard className="h-4 w-4" />
+                  Admin Panel
+                </button>
+              )}
+
               <button
+                type="button"
                 onClick={() => navigate('/profile')}
-                className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+                className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
-                Profile
+                <UserRound className="h-4 w-4" />
+                <span className="hidden sm:inline">โปรไฟล์</span>
               </button>
+
               <button
-                onClick={() => {
-                  clearAuthSession();
-                  navigate('/');
-                }}
-                className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+                type="button"
+                onClick={handleLogout}
+                className="flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-medium text-white hover:bg-slate-700"
               >
-                Logout
+                <LogOut className="h-4 w-4" />
+                <span className="hidden sm:inline">ออกจากระบบ</span>
               </button>
             </>
           )}

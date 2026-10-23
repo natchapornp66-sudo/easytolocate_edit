@@ -2,20 +2,27 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Bell, CheckCircle, Clock, Star, AlertCircle, CreditCard } from 'lucide-react';
 import { Notification } from '@/types';
+import { getAuthSession } from '@/lib/auth';
 
 const iconMap: Record<string, React.ElementType> = {
-  request: Bell,
-  approval: CheckCircle,
-  reminder: Clock,
+  rental_request: Bell,
+  approved: CheckCircle,
+  rejected: AlertCircle,
+  borrowing: Clock,
+  due_return: Clock,
+  chat: Bell,
   review: Star,
   system: AlertCircle,
   payment: CreditCard,
 };
 
 const colorMap: Record<string, string> = {
-  request: 'bg-primary/10 text-primary',
-  approval: 'bg-success/10 text-success',
-  reminder: 'bg-warning/10 text-warning',
+  rental_request: 'bg-primary/10 text-primary',
+  approved: 'bg-success/10 text-success',
+  rejected: 'bg-destructive/10 text-destructive',
+  borrowing: 'bg-primary/10 text-primary',
+  due_return: 'bg-warning/10 text-warning',
+  chat: 'bg-primary/10 text-primary',
   review: 'bg-warning/10 text-warning',
   system: 'bg-muted text-muted-foreground',
   payment: 'bg-primary/10 text-primary',
@@ -31,18 +38,59 @@ const Notifications = () => {
 
     const loadNotifications = async () => {
       try {
-        const res = await fetch('/api/notifications');
+        setIsLoading(true);
+
+        const session = getAuthSession();
+
+        console.log('AUTH SESSION:', session);
+        console.log('NOTIFICATION USER ID:', session.userId);
+
+        if (!session.userId) {
+          if (isMounted) {
+            setNotifications([]);
+          }
+          return;
+        }
+
+        if (!session.userId) {
+          if (isMounted) {
+            setNotifications([]);
+          }
+          return;
+        }
+
+        const token = localStorage.getItem('token');
+
+        const res = await fetch(
+          'http://localhost:5000/api/notifications',
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+
         const response = await res.json();
+
         if (isMounted) {
           const actualData = Array.isArray(response)
             ? response
             : Array.isArray(response?.data)
               ? response.data
               : [];
+
           setNotifications(actualData);
         }
       } catch (err) {
         console.error('Failed to load notifications:', err);
+
+        if (isMounted) {
+          setNotifications([]);
+        }
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -59,10 +107,31 @@ const Notifications = () => {
 
   const handleMarkAsRead = async (id: string | number) => {
     try {
-      await fetch(`/api/notifications/${id}/read`, { method: 'PUT' });
+      const token = localStorage.getItem('token');
+
+      if (!token) {
+        throw new Error('กรุณาเข้าสู่ระบบก่อน');
+      }
+
+      const res = await fetch(
+        `http://localhost:5000/api/notifications/${id}/read`,
+        {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
       setNotifications((prev) =>
         prev.map((n: any) =>
-          (n.notification_id || n.id) === id ? { ...n, is_read: true, read: true } : n
+          String(n.notification_id || n.id) === String(id)
+            ? { ...n, is_read: true, read: true }
+            : n
         )
       );
     } catch (err) {

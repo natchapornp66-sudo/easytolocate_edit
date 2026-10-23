@@ -1,109 +1,141 @@
 import { useNavigate } from 'react-router-dom';
-import { MapPin } from 'lucide-react';
+import { ArrowUpRight, MapPin } from 'lucide-react';
 
 interface ItemCardProps {
   item: any;
 }
 
-const ItemCard = ({ item }: ItemCardProps) => {
-  const navigate = useNavigate();
+const BACKEND_URL = 'http://localhost:5000';
+const fallbackImage =
+  'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><rect width="300" height="200" fill="%23e2e8f0"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%2394a3b8" font-family="sans-serif" font-size="16">No Image</text></svg>';
 
-  // 1. ดึง ID (รองรับทั้ง item_id และ id)
-  const itemId = item.item_id || item.id;
-
-  // 2. ดึงราคา (เพิ่ม daily_price เข้าไปรองรับด้วย)
-  const price = item.daily_price ?? item.price_per_day ?? item.rental_price_per_day ?? item.price;
-
-  // 3. ดึงระยะทาง (รองรับทั้ง distance_km, distance หรือคำนวณจาก lat/lng ถ้ามี)
-  const distance = item.distance_km ?? item.distance ?? item.lat_lng;
-
-  // 4. ดึงชื่อผู้ลงประกาศ
-  const ownerName = item.owner_name ?? item.users?.full_name ?? item.owner?.full_name;
-
-  // 5. รูปสำรอง SVG กันรูปแตก/เน็ตบล็อก
-  const fallbackImage =
-    'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><rect width="300" height="200" fill="%23e2e8f0"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%2394a3b8" font-family="sans-serif" font-size="16">No Image</text></svg>';
-
-  const BACKEND_URL = 'http://localhost:5000';
-  let imageUrl = fallbackImage;
-
+const getItemImageUrl = (item: any): string => {
   try {
     let imagesArr = item.image_url || item.images || item.image;
-
-    // ถ้ารูปเป็น String JSON สตริง (เช่น "[\"https://example.com/sony1.jpg\"]")
     if (typeof imagesArr === 'string') {
-      if (imagesArr.startsWith('[')) {
-        imagesArr = JSON.parse(imagesArr);
-      } else {
-        imagesArr = [imagesArr];
-      }
+      imagesArr = imagesArr.trim().startsWith('[')
+        ? JSON.parse(imagesArr)
+        : [imagesArr];
     }
+    if (!Array.isArray(imagesArr) || !imagesArr.length) return fallbackImage;
+    const img = imagesArr[0];
+    if (typeof img !== 'string' || !img.trim()) return fallbackImage;
 
-    if (Array.isArray(imagesArr) && imagesArr.length > 0 && imagesArr[0]) {
-      const img = imagesArr[0];
-
-      // ถ้าเป็นลิงก์ example.com ให้ดึงเอาเฉพาะชื่อไฟล์ข้างหลังมาต่อกับ Backend ของเรา
-      if (typeof img === 'string' && img.includes('example.com')) {
-        const parts = img.split('/');
-        const fileName = parts[parts.length - 1]; // เช่น sony1.jpg
-        imageUrl = `${BACKEND_URL}/uploads/${fileName}`;
-      } else if (typeof img === 'string' && (img.startsWith('http') || img.startsWith('data:'))) {
-        imageUrl = img;
-      } else if (typeof img === 'string' && img.startsWith('/')) {
-        imageUrl = `${BACKEND_URL}${img}`;
-      } else if (typeof img === 'string') {
-        imageUrl = `${BACKEND_URL}/uploads/${img}`;
-      }
+    // Preserve the existing mapping of placeholder example.com images.
+    if (img.includes('example.com')) {
+      const fileName = img.split('/').pop();
+      return fileName ? `${BACKEND_URL}/uploads/${fileName}` : fallbackImage;
     }
-  } catch (e) {
-    imageUrl = fallbackImage;
+    if (img.startsWith('http://') || img.startsWith('https://') || img.startsWith('data:')) {
+      return img;
+    }
+    if (img.startsWith('/')) return `${BACKEND_URL}${img}`;
+    return `${BACKEND_URL}/uploads/${img}`;
+  } catch {
+    return fallbackImage;
   }
+};
+
+const ItemCard = ({ item }: ItemCardProps) => {
+  const navigate = useNavigate();
+  const itemId = item.item_id || item.id;
+  const price = item.daily_price ?? item.price_per_day ?? item.rental_price_per_day ?? item.price;
+  const distance = item.distance_km ?? item.distance ?? item.lat_lng;
+  const ownerName = item.lender_name ?? item.owner_name ?? item.users?.full_name ?? item.owner?.full_name;
+  const priceEvaluation = item.price_evaluation;
+  const recommendedMinPrice = item.recommended_min_price;
+  const recommendedMaxPrice = item.recommended_max_price;
+
+  const evaluation = (() => {
+    switch (priceEvaluation) {
+      case 'BELOW_MARKET':
+        return { text: 'ต่ำกว่าช่วงราคาอ้างอิง', className: 'bg-blue-50 text-blue-700' };
+      case 'FAIR':
+        return { text: 'ราคาอยู่ในช่วงเหมาะสม', className: 'bg-emerald-50 text-emerald-700' };
+      case 'ABOVE_MARKET':
+        return { text: 'สูงกว่าช่วงราคาอ้างอิง', className: 'bg-amber-50 text-amber-700' };
+      case 'INSUFFICIENT_DATA':
+        return { text: 'ข้อมูลราคาอ้างอิงยังไม่เพียงพอ', className: 'bg-slate-100 text-slate-600' };
+      default:
+        return null;
+    }
+  })();
+
+  const hasPrice = price !== undefined && price !== null && price !== '' && Number.isFinite(Number(price));
+  const hasReferenceRange =
+    priceEvaluation !== 'INSUFFICIENT_DATA' &&
+    recommendedMinPrice !== null && recommendedMinPrice !== undefined &&
+    recommendedMaxPrice !== null && recommendedMaxPrice !== undefined;
 
   return (
-    <div
+    <button
+      type="button"
       onClick={() => navigate(`/item/${itemId}`)}
-      className="cursor-pointer overflow-hidden rounded-lg bg-card card-shadow transition-all duration-200 hover:card-shadow-hover hover:-translate-y-0.5 animate-fade-in"
+      className="group flex h-full w-full flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white text-left shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-xl hover:shadow-slate-200/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      aria-label={`ดูรายละเอียด ${item.title || 'สินค้า'}`}
     >
-      <div className="relative aspect-[4/3] overflow-hidden bg-muted">
+      <div className="relative aspect-[4/3] w-full overflow-hidden bg-slate-100">
         <img
-          src={imageUrl}
+          src={getItemImageUrl(item)}
           alt={item.title || 'สินค้า'}
-          className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+          loading="lazy"
+          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
           onError={(e) => {
-            const target = e.target as HTMLImageElement;
-            if (target.src !== fallbackImage) {
-              target.src = fallbackImage;
-            }
+            const target = e.currentTarget;
+            if (target.src !== fallbackImage) target.src = fallbackImage;
           }}
         />
         {item.status === 'rented' && (
-          <div className="absolute inset-0 flex items-center justify-center bg-foreground/50">
-            <span className="rounded-full bg-warning px-3 py-1 text-xs font-semibold text-warning-foreground">
+          <div className="absolute inset-0 flex items-center justify-center bg-slate-950/45">
+            <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-slate-900 shadow-sm">
               กำลังให้เช่า
             </span>
           </div>
         )}
-        <div className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-card/90 px-2 py-0.5 text-xs text-muted-foreground backdrop-blur-sm">
-          <MapPin className="h-3 w-3" />
-          {distance !== undefined && distance !== null && distance !== '' ? `${distance} กม.` : '- กม.'}
-        </div>
+        <span className="absolute bottom-3 left-3 inline-flex max-w-[calc(100%-1.5rem)] items-center gap-1 rounded-full border border-white/60 bg-white/95 px-2.5 py-1 text-[11px] font-medium text-slate-700 shadow-sm backdrop-blur-sm">
+          <MapPin className="h-3.5 w-3.5 shrink-0 text-blue-600" />
+          <span className="truncate">
+            {distance !== undefined && distance !== null && distance !== '' ? `${distance} กม.` : '- กม.'}
+          </span>
+        </span>
       </div>
 
-      <div className="p-3">
-        <h3 className="truncate text-sm font-semibold text-card-foreground">{item.title}</h3>
-        {ownerName && <p className="mt-0.5 text-xs text-muted-foreground">{ownerName}</p>}
-        <div className="mt-2 flex items-center justify-between">
-          <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
+      <div className="flex w-full flex-1 flex-col p-3.5 sm:p-4">
+        <div className="mb-2 flex items-start justify-between gap-2">
+          <span className="max-w-full truncate rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
             {item.category_name || item.category || 'ทั่วไป'}
           </span>
-          <div className="text-right">
-            <span className="text-sm font-bold text-primary">
-              {price !== undefined && price !== null && price !== '' ? `฿${price}/วัน` : '- ฿/วัน'}
+          <ArrowUpRight className="h-4 w-4 shrink-0 text-slate-400 transition-colors group-hover:text-blue-600" />
+        </div>
+
+        <h3 className="line-clamp-2 min-h-[2.5rem] text-sm font-bold leading-5 text-slate-900 sm:text-[15px]">
+          {item.title || 'ไม่มีชื่อสินค้า'}
+        </h3>
+        {ownerName && <p className="mt-1 truncate text-xs text-slate-500">ผู้ให้เช่า: {ownerName}</p>}
+
+        <div className="mt-auto pt-3">
+          <div className="flex flex-wrap items-baseline gap-1 border-t border-slate-100 pt-3">
+            <span className="text-lg font-extrabold tracking-tight text-blue-700 sm:text-xl">
+              {hasPrice ? `฿${Number(price).toLocaleString('th-TH')}` : '- ฿'}
             </span>
+            <span className="text-xs font-medium text-slate-500">/วัน</span>
           </div>
+
+          {evaluation && (
+            <div className="mt-2.5">
+              <span className={`inline-block max-w-full rounded-lg px-2 py-1 text-[11px] font-semibold leading-4 ${evaluation.className}`}>
+                {evaluation.text}
+              </span>
+              {hasReferenceRange && (
+                <p className="mt-1.5 text-[11px] leading-4 text-slate-500">
+                  ช่วงราคาอ้างอิง ฿{Number(recommendedMinPrice).toLocaleString('th-TH')} - ฿{Number(recommendedMaxPrice).toLocaleString('th-TH')}/วัน
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
-    </div>
+    </button>
   );
 };
 

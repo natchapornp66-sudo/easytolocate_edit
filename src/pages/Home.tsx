@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Search, Bell, MapPin, SlidersHorizontal } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { CategoryName } from '@/types';
-import { mockNotifications } from '@/data/mockData';
 import BottomNav from '@/components/BottomNav';
 import ItemCard from '@/components/ItemCard';
 import CategoryFilter from '@/components/CategoryFilter';
@@ -16,6 +15,34 @@ const distanceOptions = [
   { label: '10 กม.', value: 10 },
 ];
 
+const calculateDistanceKm = (
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+) => {
+  const R = 6371; // รัศมีโลก หน่วย km
+
+  const toRad = (value: number) =>
+    (value * Math.PI) / 180;
+
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+    Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) *
+    Math.sin(dLon / 2);
+
+  const c = 2 * Math.atan2(
+    Math.sqrt(a),
+    Math.sqrt(1 - a)
+  );
+
+  return R * c;
+};
 const Home = () => {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
@@ -25,9 +52,42 @@ const Home = () => {
   const [items, setItems] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [userLocation, setUserLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
 
+  // ขอพิกัดของผู้ใช้
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      console.log('Browser ไม่รองรับ Geolocation');
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setUserLocation({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+      },
+      (error) => {
+        console.log('ไม่สามารถอ่านตำแหน่งผู้ใช้:', error.message);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 60000,
+      }
+    );
+  }, []);
+
+  // โหลดสินค้า
   useEffect(() => {
     let isMounted = true;
+
+
 
     const loadItems = async () => {
       try {
@@ -44,16 +104,65 @@ const Home = () => {
             // ทำการ Map ฟิลด์ข้อมูลให้ครอบคลุมชื่อคอลัมน์จาก DB ทุกรูปแบบ
             const mappedData = rawData.map((item: any) => ({
               ...item,
+
               id: item.item_id || item.id,
-              title: item.title || item.name || 'ไม่มีชื่อสินค้า',
-              // ดึงราคาจากทุกชื่อฟิลด์ที่เป็นไปได้
-              price_per_day: Number(item.price_per_day || item.rental_price_per_day || item.price || item.rental_fee || 0),
-              rental_price_per_day: Number(item.price_per_day || item.rental_price_per_day || item.price || item.rental_fee || 0),
-              // ดึงรูปภาพจากทุกชื่อฟิลด์
-              image_url: item.image_url || item.images || item.image || item.photo,
-              images: item.images || item.image_url || item.image || [],
-              category_name: item.category_name || item.category || 'ทั่วไป',
-              distance_km: item.distance_km || item.distance || 0,
+
+              title:
+                item.title ||
+                item.name ||
+                'ไม่มีชื่อสินค้า',
+
+              price_per_day: Number(
+                item.daily_price ??
+                item.price_per_day ??
+                item.rental_price_per_day ??
+                item.price ??
+                item.rental_fee ??
+                0
+              ),
+
+              rental_price_per_day: Number(
+                item.daily_price ??
+                item.price_per_day ??
+                item.rental_price_per_day ??
+                item.price ??
+                item.rental_fee ??
+                0
+              ),
+
+              image_url:
+                item.image_url ||
+                item.images ||
+                item.image ||
+                item.photo,
+
+              images:
+                item.images ||
+                item.image_url ||
+                item.image ||
+                [],
+
+              category_name:
+                item.category_name ||
+                item.category ||
+                'ทั่วไป',
+
+              search_keywords:
+                item.search_keywords || '',
+
+              distance_km:
+                userLocation &&
+                  item.latitude != null &&
+                  item.longitude != null
+                  ? Number(
+                    calculateDistanceKm(
+                      userLocation.latitude,
+                      userLocation.longitude,
+                      Number(item.latitude),
+                      Number(item.longitude)
+                    ).toFixed(1)
+                  )
+                  : null,
             }));
 
             setItems(mappedData);
@@ -76,139 +185,533 @@ const Home = () => {
     return () => {
       isMounted = false;
     };
+  }, [userLocation]);
+
+  // โหลดจำนวนการแจ้งเตือนที่ยังไม่ได้อ่านจาก Backend
+  useEffect(() => {
+    const loadNotifications = async () => {
+      const token = localStorage.getItem('token');
+
+      if (!token) {
+        setUnreadCount(0);
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          'http://localhost:5000/api/notifications',
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error('ไม่สามารถโหลดการแจ้งเตือนได้');
+        }
+
+        const result = await response.json();
+
+        if (result.success && Array.isArray(result.data)) {
+          const count = result.data.filter(
+            (notification: { is_read: boolean }) =>
+              notification.is_read === false
+          ).length;
+
+          setUnreadCount(count);
+        }
+      } catch (error) {
+        console.error('Load notifications error:', error);
+      }
+    };
+
+    loadNotifications();
   }, []);
 
-  const unreadCount = mockNotifications.filter((n: any) => !(n.is_read ?? n.read)).length;
+  const normalizeText = (value: unknown) =>
+    String(value ?? '')
+      .toLowerCase()
+      .trim();
+
+  // คำค้นที่ผู้ใช้อาจพิมพ์ → คำที่ควรนำไปค้นสินค้า
+  const searchIntents: Record<string, string[]> = {
+    // กล้อง / ถ่ายภาพ
+    'ถ่ายรูป': [
+      'กล้อง',
+      'sony',
+      'dji',
+      'โดรน',
+      'กล้องและอุปกรณ์ถ่ายภาพ',
+    ],
+    'ถ่ายภาพ': [
+      'กล้อง',
+      'sony',
+      'dji',
+      'โดรน',
+      'กล้องและอุปกรณ์ถ่ายภาพ',
+    ],
+    'ถ่ายวิดีโอ': [
+      'กล้อง',
+      'sony',
+      'dji',
+      'โดรน',
+      'กล้องและอุปกรณ์ถ่ายภาพ',
+    ],
+    'กล้องบิน': [
+      'โดรน',
+      'dji',
+    ],
+    'ถ่ายรูปบนฟ้า': [
+      'โดรน',
+      'dji',
+    ],
+
+    // เกม
+    'เล่นเกม': [
+      'playstation',
+      'ps5',
+      'เกม',
+      'เครื่องใช้ไฟฟ้าและเกม',
+    ],
+    'เกมส์': [
+      'playstation',
+      'ps5',
+      'เกม',
+      'เครื่องใช้ไฟฟ้าและเกม',
+    ],
+
+    // แคมป์
+    'เที่ยวป่า': [
+      'เต็นท์',
+      'เก้าอี้แคมป์',
+      'แคมป์',
+      'อุปกรณ์แคมป์ปิ้ง',
+    ],
+    'กางเต็นท์': [
+      'เต็นท์',
+      'แคมป์',
+      'อุปกรณ์แคมป์ปิ้ง',
+    ],
+    'ไปแคมป์': [
+      'เต็นท์',
+      'เก้าอี้แคมป์',
+      'อุปกรณ์แคมป์ปิ้ง',
+    ],
+
+    // เครื่องมือ
+    'เจาะผนัง': [
+      'สว่าน',
+      'bosch',
+      'เครื่องมือช่าง',
+      'diy',
+    ],
+    'เจาะกำแพง': [
+      'สว่าน',
+      'bosch',
+      'เครื่องมือช่าง',
+      'diy',
+    ],
+    'เจาะไม้': [
+      'สว่าน',
+      'bosch',
+      'เครื่องมือช่าง',
+    ],
+
+    // เสื้อผ้า / งาน
+    'ออกงาน': [
+      'เดรส',
+      'ชุดเดรส',
+      'เสื้อผ้าและแฟชั่น',
+    ],
+    'ชุดไปงาน': [
+      'เดรส',
+      'ชุดเดรส',
+      'เสื้อผ้าและแฟชั่น',
+    ],
+    'งานแต่ง': [
+      'เดรส',
+      'ชุดเดรส',
+      'เสื้อผ้าและแฟชั่น',
+    ],
+
+    // กีฬา
+    'ออกกำลังกาย': [
+      'กีฬา',
+      'surfskate',
+      'เซิร์ฟสเก็ต',
+      'อุปกรณ์กีฬาและออกกำลังกาย',
+    ],
+    'เล่นสเก็ต': [
+      'surfskate',
+      'เซิร์ฟสเก็ต',
+      'สเก็ต',
+    ],
+
+    // เดินทาง
+    'กระเป๋าเที่ยว': [
+      'กระเป๋า',
+      'samsonite',
+      'กระเป๋าเดินทาง',
+    ],
+    'กระเป๋าไปเที่ยว': [
+      'กระเป๋า',
+      'samsonite',
+      'กระเป๋าเดินทาง',
+    ],
+  };
+  const typoAliases: Record<string, string[]> = {
+    // สว่าน
+    'สว่าน': [
+      'สวาน',
+      'สว่านไฟฟ้า',
+      'สวานไฟฟ้า',
+      'bosch',
+    ],
+
+    // PlayStation
+    'playstation': [
+      'เพลสเตชั่น',
+      'เพลย์สเตชั่น',
+      'เพสเตชั่น',
+      'เพลสเตชัน',
+      'ps5',
+    ],
+
+    // เต็นท์
+    'เต็นท์': [
+      'เต้น',
+      'เต๊นท์',
+      'เต๊น',
+      'tent',
+    ],
+
+    // กล้อง
+    'กล้อง': [
+      'กลอง',
+      'camera',
+      'คาเมร่า',
+    ],
+
+    // โดรน
+    'โดรน': [
+      'โดน',
+      'drone',
+      'dji',
+    ],
+
+    // สกู๊ตเตอร์
+    'สกู๊ตเตอร์': [
+      'สกูตเตอร์',
+      'สกุตเตอร์',
+      'scooter',
+    ],
+
+    // เซิร์ฟสเก็ต
+    'เซิร์ฟสเก็ต': [
+      'เซิฟสเก็ต',
+      'เซิร์ฟสเกต',
+      'surfskate',
+    ],
+
+    // กระเป๋า
+    'กระเป๋า': [
+      'กะเป๋า',
+      'กระเป๋าเดินทาง',
+      'bag',
+      'samsonite',
+    ],
+    'ถ่ายภาพทางอากาศ': [
+      'ถ่ายภาพอากาศ',
+      'ถ่ายรูปทางอากาศ',
+      'ถ่ายรูปอากาศ',
+      'ถ่ายภาพบนฟ้า',
+      'ถ่ายรูปบนฟ้า',
+    ],
+  };
+
+  // คืนคะแนนความเกี่ยวข้องของสินค้า
+  const getSearchScore = (item: any, rawQuery: string) => {
+    const query = normalizeText(rawQuery);
+
+    if (!query) return 0;
+
+    const title = normalizeText(item.title);
+    const description = normalizeText(item.description);
+    const categoryName = normalizeText(item.category_name);
+    const searchKeywords = normalizeText(item.search_keywords);
+
+    let score = 0;
+
+    // แปลงคำสะกดผิด / ชื่อเรียกอื่น
+    let correctedQuery = query;
+
+    for (const [correctWord, aliases] of Object.entries(typoAliases)) {
+      const normalizedCorrectWord = normalizeText(correctWord);
+
+      const matchedAlias = aliases.some(
+        (alias) => normalizeText(alias) === query
+      );
+
+      if (matchedAlias) {
+        correctedQuery = normalizedCorrectWord;
+        break;
+      }
+    }
+
+    // 1. ชื่อสินค้าตรงคำค้น
+    if (title === correctedQuery) {
+      score += 200;
+    } else if (title.includes(correctedQuery)) {
+      score += 120;
+    }
+
+    // 2. keyword ของสินค้าตรงกับคำค้น
+    // สำคัญมากสำหรับคำอย่าง "ดีดกีตาร์", "เครื่องฉาย", "ถ่ายภาพอากาศ"
+    if (searchKeywords) {
+      if (searchKeywords.includes(correctedQuery)) {
+        score += 150;
+      }
+    }
+
+    // 3. หมวดหมู่
+    if (categoryName === correctedQuery) {
+      score += 100;
+    } else if (categoryName.includes(correctedQuery)) {
+      score += 70;
+    }
+
+    // 4. description
+    if (description.includes(correctedQuery)) {
+      score += 50;
+    }
+
+    // 5. Intent Search
+    const matchedIntent = Object.entries(searchIntents).find(
+      ([intent, keywords]) => {
+        const normalizedIntent = normalizeText(intent);
+
+        return (
+          normalizedIntent === correctedQuery ||
+          keywords.some(
+            (keyword) => normalizeText(keyword) === correctedQuery
+          )
+        );
+      }
+    );
+
+    if (matchedIntent) {
+      const [, keywords] = matchedIntent;
+
+      for (const keyword of keywords) {
+        const word = normalizeText(keyword);
+
+        if (!word) continue;
+
+        if (title.includes(word)) {
+          score += 40;
+        }
+
+        if (categoryName.includes(word)) {
+          score += 20;
+        }
+
+        if (description.includes(word)) {
+          score += 10;
+        }
+
+        if (searchKeywords.includes(word)) {
+          score += 20;
+        }
+      }
+    }
+
+    return score;
+  };
 
   const filtered = items
+    .map((item) => ({
+      ...item,
+      searchScore: getSearchScore(item, search),
+    }))
     .filter((item) => {
-
-      console.log('Selected Category:', category, 'Item Category:', item.category_name);
+      const hasSearch = normalizeText(search) !== '';
 
       const matchSearch =
-        item.title?.toLowerCase().includes(search.toLowerCase()) ||
-        item.description?.toLowerCase().includes(search.toLowerCase());
+        !hasSearch || item.searchScore > 0;
 
       const matchCategory =
         category === 'ทั้งหมด' ||
         item.category_name?.includes(category) ||
         item.category?.includes(category) ||
         String(item.category_id) === String(category);
-      const matchDistance = !item.distance_km || item.distance_km <= maxDistance;
+
+      const matchDistance =
+        maxDistance === Infinity ||
+        (
+          item.distance_km !== null &&
+          item.distance_km !== undefined &&
+          item.distance_km <= maxDistance
+        );
 
       return matchSearch && matchCategory && matchDistance;
     })
-    .sort((a, b) => (a.distance_km || 999) - (b.distance_km || 999));
+    .sort((a, b) => {
+      // ถ้ามีการค้นหา → เรียงความเกี่ยวข้องก่อน
+      if (normalizeText(search)) {
+        if (b.searchScore !== a.searchScore) {
+          return b.searchScore - a.searchScore;
+        }
+      }
+
+      // คะแนนเท่ากัน → ใกล้กว่าขึ้นก่อน
+      return (
+        (a.distance_km || 999) -
+        (b.distance_km || 999)
+      );
+    });
 
   const distanceLabel = maxDistance === Infinity ? 'ทั้งหมด' : `≤ ${maxDistance} กม.`;
 
   return (
-    <div className="min-h-screen bg-background pb-20">
-      {/* Header */}
-      <div className="bg-gradient-primary px-4 pb-6 pt-10">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-bold text-primary-foreground font-display">Easy to Locate</h1>
-            <div className="mt-0.5 flex items-center gap-1 text-xs text-primary-foreground/70">
-              <MapPin className="h-3 w-3" />
-              กรุงเทพมหานคร
+    <div className="min-h-screen bg-slate-50 pb-24 text-slate-900">
+      <header className="relative overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-700 text-white">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-cyan-400/15 blur-3xl" />
+        <div className="relative mx-auto w-full max-w-[1440px] px-5 pb-16 pt-10 sm:px-8 lg:px-12">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/20">
+                <MapPin className="h-6 w-6 text-emerald-300" />
+              </div>
+              <div>
+                <h1 className="text-lg font-extrabold tracking-tight sm:text-xl">Easy to Locate</h1>
+                <p className="text-xs text-blue-100/80">เช่าของใกล้ตัว ง่ายกว่าที่เคย</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              aria-label="การแจ้งเตือน"
+              onClick={() => navigate('/notifications')}
+              className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-white/20 bg-white/10 transition hover:bg-white/20"
+            >
+              <Bell className="h-5 w-5" />
+              {unreadCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
+            </button>
+          </div>
+
+          <div className="mt-10 max-w-2xl">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1 text-xs font-medium text-emerald-200">
+              <MapPin className="h-3.5 w-3.5" />
+              {userLocation ? 'พร้อมค้นหาสิ่งของตามระยะทาง' : 'ค้นหาสิ่งของให้เช่าได้ทุกที่'}
+            </div>
+            <h2 className="text-3xl font-extrabold leading-tight tracking-tight sm:text-4xl">
+              ของที่อยากใช้ <span className="text-emerald-300">ไม่จำเป็นต้องซื้อ</span>
+            </h2>
+            <p className="mt-3 text-sm leading-relaxed text-blue-100/85 sm:text-base">
+              ค้นหาสิ่งของที่ต้องการ เช่าได้สะดวก และเลือกจากสิ่งของที่มีอยู่ในระบบ
+            </p>
+          </div>
+
+          <div className="relative mt-7 max-w-3xl">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+            <Input
+              type="text"
+              aria-label="ค้นหาสินค้าให้เช่า"
+              placeholder="ลองค้นหา กล้อง, สว่าน, เต็นท์ หรือ PS5..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-14 rounded-2xl border-0 bg-white pl-12 pr-4 text-base text-slate-900 shadow-xl shadow-slate-950/20 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-emerald-300"
+            />
+          </div>
+        </div>
+      </header>
+
+      <main className="relative z-10 mx-auto -mt-8 w-full max-w-[1440px] space-y-8 px-5 sm:px-8 lg:px-12">
+        <section className="rounded-3xl border border-slate-100 bg-white p-4 shadow-lg shadow-slate-200/70 sm:p-6">
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 sm:text-lg">เลือกหมวดหมู่ที่สนใจ</h2>
+              <p className="mt-1 text-xs text-slate-500">ค้นหาของที่ใช่ได้เร็วขึ้น</p>
             </div>
           </div>
-          <button
-            onClick={() => navigate('/notifications')}
-            className="relative flex h-9 w-9 items-center justify-center rounded-full bg-primary-foreground/15 text-primary-foreground"
-          >
-            <Bell className="h-5 w-5" />
-            {unreadCount > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
-                {unreadCount}
-              </span>
-            )}
-          </button>
-        </div>
+          <CategoryFilter selected={category as any} onSelect={(cat) => setCategory(cat as any)} />
+        </section>
 
-        <div className="relative mt-4">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="text"
-            placeholder="ค้นหาสิ่งของที่ต้องการเช่า..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="rounded-xl border-0 bg-card pl-10 shadow-sm"
-          />
-        </div>
-      </div>
+        <section className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/60 sm:p-7 lg:p-8">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-extrabold text-slate-900 sm:text-xl">สำรวจสิ่งของให้เช่า</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                {isLoading ? 'กำลังค้นหาสินค้า...' : `พบ ${filtered.length} รายการที่ตรงกับการค้นหา`}
+              </p>
+            </div>
+            <div className="relative">
+              <button
+                type="button"
+                aria-expanded={showDistanceFilter}
+                onClick={() => setShowDistanceFilter(!showDistanceFilter)}
+                className="flex min-h-10 items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                ระยะทาง: {distanceLabel}
+              </button>
+              {showDistanceFilter && (
+                <div className="absolute right-0 top-12 z-30 min-w-[160px] rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                  {distanceOptions.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => {
+                        setMaxDistance(opt.value);
+                        setShowDistanceFilter(false);
+                      }}
+                      className={`block w-full rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${maxDistance === opt.value
+                        ? 'bg-blue-600 font-semibold text-white'
+                        : 'text-slate-700 hover:bg-slate-100'
+                        }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
 
-      {/* Categories */}
-      <div className="px-4 pt-4">
-        <CategoryFilter selected={category as any} onSelect={(cat) => setCategory(cat as any)} />
-      </div>
-
-      {/* Items Grid */}
-      <div className="px-4 pt-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">
-            สิ่งของให้เช่า ({filtered.length})
-          </h2>
-          <div className="relative">
-            <button
-              onClick={() => setShowDistanceFilter(!showDistanceFilter)}
-              className="flex items-center gap-1 text-xs text-primary font-medium"
-            >
-              <SlidersHorizontal className="h-3.5 w-3.5" />
-              ระยะทาง: {distanceLabel}
-            </button>
-            {showDistanceFilter && (
-              <div className="absolute right-0 top-7 z-20 rounded-xl border border-border bg-card p-2 shadow-lg min-w-[130px]">
-                {distanceOptions.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => {
-                      setMaxDistance(opt.value);
-                      setShowDistanceFilter(false);
-                    }}
-                    className={`block w-full rounded-lg px-3 py-2 text-left text-xs transition-colors ${maxDistance === opt.value
-                      ? 'bg-primary text-primary-foreground font-semibold'
-                      : 'text-foreground hover:bg-muted'
-                      }`}
-                  >
-                    {opt.label}
-                  </button>
+          {isLoading && (
+            <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
+              กำลังโหลดรายการสินค้า...
+            </div>
+          )}
+          {!isLoading && error && (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700" role="alert">
+              {error}
+            </div>
+          )}
+          {!isLoading && !error && (
+            <>
+              <div className="grid grid-cols-2 gap-4 sm:gap-5 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+                {filtered.map((item) => (
+                  <ItemCard key={item.id} item={item} />
                 ))}
               </div>
-            )}
-          </div>
-        </div>
-
-        {isLoading && (
-          <div className="flex min-h-[200px] items-center justify-center rounded-xl border border-dashed border-border text-sm text-muted-foreground">
-            กำลังโหลดรายการสินค้า...
-          </div>
-        )}
-
-        {!isLoading && error && (
-          <div className="mb-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-            {error}
-          </div>
-        )}
-
-        {!isLoading && !error && (
-          <>
-            <div className="grid grid-cols-2 gap-3">
-              {filtered.map((item) => (
-                <ItemCard key={item.id} item={item} />
-              ))}
-            </div>
-            {filtered.length === 0 && (
-              <div className="flex flex-col items-center py-12 text-muted-foreground">
-                <Search className="mb-2 h-8 w-8" />
-                <p className="text-sm">ไม่พบสิ่งของที่ค้นหา</p>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
+              {filtered.length === 0 && (
+                <div className="flex flex-col items-center rounded-2xl bg-slate-50 px-4 py-16 text-center text-slate-500">
+                  <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                    <Search className="h-7 w-7" />
+                  </div>
+                  <p className="font-semibold text-slate-700">ไม่พบสิ่งของที่ค้นหา</p>
+                  <p className="mt-1 text-sm">ลองเปลี่ยนคำค้น หมวดหมู่ หรือระยะทาง</p>
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      </main>
       <BottomNav />
     </div>
   );

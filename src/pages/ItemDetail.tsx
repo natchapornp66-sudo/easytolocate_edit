@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, MapPin, Star, Shield, MessageCircle, Calculator, Info, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
+import { apiGet } from '@/lib/api';
 import {
   Dialog,
   DialogContent,
@@ -14,6 +15,28 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 
 const PLATFORM_FEE_RATE = 0.10;
+const calculateDistanceKm = (
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+) => {
+  const R = 6371;
+
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) *
+    Math.sin(dLon / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+};
 
 const ItemDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -28,6 +51,7 @@ const ItemDetail = () => {
   const [agreementAccepted, setAgreementAccepted] = useState(false);
   const [lateFee, setLateFee] = useState('');
   const [user, setUser] = useState<any>(null);
+  const [distanceKm, setDistanceKm] = useState<number | null>(null);
 
   // ดึงข้อมูล User จาก LocalStorage
   useEffect(() => {
@@ -48,28 +72,40 @@ const ItemDetail = () => {
     const fetchItemAndReviews = async () => {
       try {
         // 1. ดึงข้อมูลรายละเอียดสินค้า
-        const itemRes = await fetch(`/api/items/${id}`);
-        if (itemRes.ok) {
-          const itemData = await itemRes.json();
-          console.log('ITEM DATA:', itemData);
-          if (isMounted) setItem(itemData.data || itemData);
+        const itemData = await apiGet<any>(
+          `/api/items/${id}`
+        );
+
+        console.log('ITEM DATA:', itemData);
+
+        if (isMounted) {
+          setItem(itemData.data || itemData);
         }
 
         // 2. ดึงข้อมูลรีวิวของสินค้านี้
-        const reviewsRes = await fetch(`/api/items/${id}/reviews`);
-        if (reviewsRes.ok) {
-          const reviewsData = await reviewsRes.json();
-          const actualReviews = Array.isArray(reviewsData)
-            ? reviewsData
-            : Array.isArray(reviewsData?.data)
-              ? reviewsData.data
-              : [];
-          if (isMounted) setItemReviews(actualReviews);
+        const reviewsData = await apiGet<any>(
+          `/api/items/${id}/reviews`
+        );
+
+        const actualReviews = Array.isArray(reviewsData)
+          ? reviewsData
+          : Array.isArray(reviewsData?.data)
+            ? reviewsData.data
+            : [];
+
+        if (isMounted) {
+          setItemReviews(actualReviews);
         }
+
       } catch (err) {
-        console.error('Failed to fetch item details or reviews:', err);
+        console.error(
+          'Failed to fetch item details or reviews:',
+          err
+        );
       } finally {
-        if (isMounted) setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     };
 
@@ -81,6 +117,45 @@ const ItemDetail = () => {
       isMounted = false;
     };
   }, [id]);
+  useEffect(() => {
+    if (!item?.latitude || !item?.longitude) {
+      setDistanceKm(null);
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      setDistanceKm(null);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const userLat = position.coords.latitude;
+        const userLon = position.coords.longitude;
+
+        const itemLat = Number(item.latitude);
+        const itemLon = Number(item.longitude);
+
+        const distance = calculateDistanceKm(
+          userLat,
+          userLon,
+          itemLat,
+          itemLon
+        );
+
+        setDistanceKm(distance);
+      },
+      (error) => {
+        console.log('ไม่สามารถอ่านตำแหน่งผู้ใช้:', error.message);
+        setDistanceKm(null);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 60000,
+      }
+    );
+  }, [item]);
 
   if (isLoading) {
     return (
@@ -99,6 +174,54 @@ const ItemDetail = () => {
   }
 
   const pricePerDay = Number(item.rental_price_per_day || item.price_per_day || item.price || item.daily_price || 0);
+  // Rental Price Evaluation
+  const priceEvaluation = item.price_evaluation;
+
+
+  const recommendedMinPrice =
+    item.recommended_min_price !== null &&
+      item.recommended_min_price !== undefined
+      ? Number(item.recommended_min_price)
+      : null;
+
+  const recommendedMaxPrice =
+    item.recommended_max_price !== null &&
+      item.recommended_max_price !== undefined
+      ? Number(item.recommended_max_price)
+      : null;
+
+  const getPriceEvaluation = () => {
+    switch (priceEvaluation) {
+      case 'BELOW_MARKET':
+        return {
+          text: 'ต่ำกว่าช่วงราคาอ้างอิง',
+          className: 'bg-blue-50 text-blue-700 border-blue-200',
+        };
+
+      case 'FAIR':
+        return {
+          text: 'ราคาอยู่ในช่วงเหมาะสม',
+          className: 'bg-green-50 text-green-700 border-green-200',
+        };
+
+      case 'ABOVE_MARKET':
+        return {
+          text: 'สูงกว่าช่วงราคาอ้างอิง',
+          className: 'bg-orange-50 text-orange-700 border-orange-200',
+        };
+
+      case 'INSUFFICIENT_DATA':
+        return {
+          text: 'ข้อมูลราคาอ้างอิงยังไม่เพียงพอ',
+          className: 'bg-gray-50 text-gray-600 border-gray-200',
+        };
+
+      default:
+        return null;
+    }
+  };
+
+  const evaluation = getPriceEvaluation();
   const totalRental = pricePerDay * days;
   const platformFee = Math.round(totalRental * PLATFORM_FEE_RATE);
   const totalPayment = totalRental;
@@ -119,8 +242,19 @@ const ItemDetail = () => {
 
   const images = [rawImage];
 
-  const ownerName = item.owner_name || item.owner?.full_name || item.user_name || 'เจ้าของสิ่งของ';
-  const ownerId = item.owner_id || item.owner?.id || item.user_id || item.userId;
+  const ownerName =
+    item.lender_name ||
+    item.owner_name ||
+    item.owner?.full_name ||
+    item.user_name ||
+    'ไม่พบชื่อเจ้าของ';
+
+  const ownerId =
+    item.lender_id ||
+    item.owner_id ||
+    item.owner?.id ||
+    item.user_id ||
+    item.userId;
 
   const handleBorrow = () => {
     if (!user) {
@@ -149,13 +283,36 @@ const ItemDetail = () => {
 
   const handleSubmitRequest = async () => {
     try {
-      const res = await fetch('/api/rentals', {
+      const startDate = new Date();
+      const endDate = new Date(startDate);
+
+      endDate.setDate(startDate.getDate() + days - 1);
+
+      const formatDate = (date: Date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+
+        return `${year}-${month}-${day}`;
+      };
+      const token = localStorage.getItem('token');
+
+      if (!token) {
+        throw new Error('กรุณาเข้าสู่ระบบก่อนส่งคำขอเช่า');
+
+      }
+
+      const res = await fetch('http://localhost:5000/api/rentals', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           item_id: item.item_id || item.id,
+          start_date: formatDate(startDate),
+          end_date: formatDate(endDate),
+          agreement_accepted: true,
           item_title: item.title,
           item_image: images[0],
           borrower_id: user?.id || user?.user_id,
@@ -180,7 +337,14 @@ const ItemDetail = () => {
         });
         navigate('/my-borrowings');
       } else {
-        throw new Error('Server returned an error');
+        const errorData = await res.json();
+
+        console.error('Rental API Error:', {
+          status: res.status,
+          data: errorData,
+        });
+
+        throw new Error(errorData.error || 'Server returned an error');
       }
     } catch (error) {
       toast({
@@ -191,164 +355,357 @@ const ItemDetail = () => {
     }
   };
 
-  const avgRating = itemReviews.length > 0
-    ? (itemReviews.reduce((sum, r) => sum + (r.rating || 0), 0) / itemReviews.length).toFixed(1)
-    : null;
-
+  const avgRating =
+    itemReviews.length > 0
+      ? (
+        itemReviews.reduce(
+          (sum, review) => sum + Number(review.rating || 0),
+          0
+        ) / itemReviews.length
+      ).toFixed(1)
+      : null;
   return (
-    <div className="min-h-screen bg-background pb-28">
+    <div className="min-h-screen bg-slate-50 pb-28 lg:pb-24">
+
       {/* Image */}
-      <div className="relative">
-        <img src={images[0]} alt={item.title} className="h-64 w-full object-cover sm:h-80" />
+      <div className="relative mx-auto mt-6 max-w-5xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <img
+          src={images[0]}
+          alt={item.title}
+          className="h-72 w-full object-contain bg-slate-100 sm:h-96 lg:h-[480px]"
+        />
+
         <button
           onClick={() => navigate(-1)}
-          className="absolute left-4 top-10 flex h-9 w-9 items-center justify-center rounded-full bg-card/80 backdrop-blur-sm"
+          className="absolute left-4 top-4 flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white/95 shadow-sm transition hover:bg-slate-100"
         >
-          <ArrowLeft className="h-5 w-5 text-card-foreground" />
+          <ArrowLeft className="h-5 w-5 text-slate-800" />
         </button>
       </div>
 
       {/* Content */}
-      <div className="-mt-4 rounded-t-3xl bg-background px-5 pt-6">
-        <div className="flex items-start justify-between gap-3">
-          <h1 className="text-xl font-bold text-foreground font-display">{item.title}</h1>
-          <div className="shrink-0 text-right">
-            <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-bold text-primary">
-              ฿{pricePerDay}/วัน
-            </span>
-          </div>
-        </div>
-
-        {/* Owner */}
-        <div className="mt-4 flex items-center gap-3 rounded-xl border border-border bg-card p-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-sm">
-            {ownerName.charAt(0)}
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-card-foreground">{ownerName}</p>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Star className="h-3 w-3 fill-warning text-warning" />
-              4.8
-              <span>•</span>
-              <MapPin className="h-3 w-3" />
-              {item.distance_km || 0} กม.
+      <div className="mx-auto mt-6 grid max-w-6xl grid-cols-1 items-start gap-6 px-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        {/* Left: Item Information */}
+        <div className="min-w-0 space-y-5 rounded-3xl border border-slate-200 bg-white px-5 py-6 shadow-sm sm:px-8 lg:px-8">
+          <div className="flex items-start justify-between gap-3">
+            <h1 className="text-xl font-bold text-foreground font-display">{item.title}</h1>
+            <div className="shrink-0 text-right">
+              <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-bold text-primary">
+                ฿{pricePerDay}/วัน
+              </span>
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1"
-            onClick={() => {
-              const targetOwnerId = ownerId || item.lender_id || item.user_id || item.userId;
-
-              if (!targetOwnerId) {
-                toast({ title: 'ไม่พบข้อมูลเจ้าของสินค้า', variant: 'destructive' });
-                return;
-              }
-
-              // พาไปที่หน้าแชทหลัก พร้อมแนบ lender_id ไปด้วย เพื่อให้ฝั่งหน้าแชทไปจัดการต่อ
-              navigate(`/chat?recipient=${targetOwnerId}&item=${item.item_id || item.id}`);
-            }}
-          >
-            <MessageCircle className="h-3.5 w-3.5" />
-            แชท
-          </Button>
-        </div>
-
-        {/* Description */}
-        <div className="mt-5">
-          <h2 className="mb-2 text-sm font-semibold text-foreground">รายละเอียด</h2>
-          <p className="text-sm leading-relaxed text-muted-foreground">{item.description}</p>
-        </div>
-
-        {/* Conditions */}
-        {item.conditions && (
-          <div className="mt-5">
-            <h2 className="mb-2 text-sm font-semibold text-foreground">เงื่อนไขการเช่า</h2>
-            <div className="rounded-xl border border-border bg-muted/50 p-3">
-              <div className="flex items-start gap-2">
-                <Shield className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                <p className="text-sm text-muted-foreground">{item.conditions}</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Reviews */}
-        <div className="mt-5">
-          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            <Star className="h-4 w-4 text-warning" />
-            รีวิวจากผู้เช่า {avgRating && `(${avgRating})`}
-          </h2>
-          {itemReviews.length > 0 ? (
-            <div className="space-y-2">
-              {itemReviews.map((review: any) => {
-                const reviewerName = review.reviewer_name || review.user_name || 'ผู้ใช้งาน';
-                const reviewId = review.review_id || review.id;
-                return (
-                  <div key={reviewId} className="rounded-xl border border-border bg-card p-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">
-                        {reviewerName.charAt(0)}
-                      </div>
-                      <span className="text-sm font-medium text-card-foreground">{reviewerName}</span>
-                      <div className="flex items-center gap-0.5 ml-auto">
-                        {[1, 2, 3, 4, 5].map((s) => (
-                          <Star key={s} className={`h-3 w-3 ${s <= review.rating ? 'fill-warning text-warning' : 'text-border'}`} />
-                        ))}
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground">{review.comment}</p>
-                    {review.created_at && (
-                      <p className="text-[10px] text-muted-foreground/60 mt-1">
-                        {new Date(review.created_at).toLocaleDateString('th-TH')}
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground rounded-xl border border-border bg-muted/50 p-3">ยังไม่มีรีวิว</p>
-          )}
-        </div>
-
-        {/* Rental Calculator */}
-        <div className="mt-5">
-          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            <Calculator className="h-4 w-4 text-primary" />
-            คำนวณค่าเช่า
-          </h2>
-          <div className="rounded-xl border border-border bg-card p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">จำนวนวัน</span>
+          {/* Rental Price Evaluation */}
+          {evaluation && (
+            <div className="mt-4 rounded-xl border border-border bg-card p-4">
               <div className="flex items-center gap-2">
-                <button onClick={() => setDays(Math.max(1, days - 1))} className="flex h-8 w-8 items-center justify-center rounded-lg bg-secondary text-secondary-foreground font-bold">-</button>
-                <span className="w-8 text-center text-lg font-bold text-foreground">{days}</span>
-                <button onClick={() => setDays(days + 1)} className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">+</button>
+                <Calculator className="h-4 w-4 text-primary" />
+
+                <h2 className="text-sm font-semibold text-foreground">
+                  การประเมินราคาเช่า
+                </h2>
+              </div>
+
+              <div className="mt-3">
+                <span
+                  className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${evaluation.className}`}
+                >
+                  {evaluation.text}
+                </span>
+              </div>
+
+              {priceEvaluation !== 'INSUFFICIENT_DATA' &&
+                recommendedMinPrice !== null &&
+                recommendedMaxPrice !== null && (
+                  <div className="mt-3">
+                    <p className="text-xs text-muted-foreground">
+                      ช่วงราคาอ้างอิง
+                    </p>
+
+                    <p className="mt-1 text-base font-bold text-foreground">
+                      ฿{recommendedMinPrice.toLocaleString()}
+                      {' - '}
+                      ฿{recommendedMaxPrice.toLocaleString()}
+                      {' / วัน'}
+                    </p>
+                  </div>
+                )}
+
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                ข้อมูลนี้เป็นการประเมินจากช่วงราคาเช่าอ้างอิง
+                เพื่อช่วยประกอบการตัดสินใจ
+                โดยราคาจริงเป็นราคาที่ผู้ให้เช่ากำหนด
+              </p>
+            </div>
+          )}
+
+          {/* Owner */}
+          <div className="mt-4 flex items-center gap-3 rounded-xl border border-border bg-card p-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-sm">
+              {ownerName.charAt(0)}
+            </div>
+
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-card-foreground">
+                {ownerName}
+              </p>
+
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Star className="h-3 w-3 fill-warning text-warning" />
+
+                <span>
+                  {avgRating ?? 'ยังไม่มีคะแนน'}
+                </span>
+
+                <span>•</span>
+
+                <MapPin className="h-3 w-3" />
+
+                <span>
+                  {distanceKm !== null
+                    ? `${distanceKm.toFixed(1)} กม.`
+                    : 'ไม่พบระยะทาง'}
+                </span>
               </div>
             </div>
-            <div className="border-t border-border pt-3 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">ค่าเช่า ({days} วัน × ฿{pricePerDay})</span>
-                <span className="font-medium text-foreground">฿{totalRental.toLocaleString()}</span>
+
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              onClick={() => {
+                if (!ownerId) {
+                  toast({
+                    title: 'ไม่พบข้อมูลเจ้าของสินค้า',
+                    variant: 'destructive',
+                  });
+                  return;
+                }
+
+                navigate(`/chat/${ownerId}`);
+              }}
+            >
+              <MessageCircle className="h-3.5 w-3.5" />
+              แชท
+            </Button>
+          </div>
+
+          {/* Description */}
+          <div className="mt-5">
+            <h2 className="mb-2 text-sm font-semibold text-foreground">รายละเอียด</h2>
+            <p className="text-sm leading-relaxed text-muted-foreground">{item.description}</p>
+          </div>
+          {/* Clothing Size Details */}
+          {(
+            item.clothing_size ||
+            item.chest != null ||
+            item.waist != null ||
+            item.hips != null ||
+            item.clothing_length != null
+          ) && (
+              <div className="mt-5">
+                <h2 className="mb-2 text-sm font-semibold text-foreground">
+                  รายละเอียดขนาดเสื้อผ้า
+                </h2>
+
+                <div className="rounded-xl border border-border bg-card p-4">
+                  {item.clothing_size && (
+                    <div className="mb-3">
+                      <span className="inline-flex rounded-full bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
+                        ไซส์ {item.clothing_size}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { label: 'รอบอก', value: item.chest, unit: 'นิ้ว' },
+                      { label: 'รอบเอว', value: item.waist, unit: 'นิ้ว' },
+                      { label: 'รอบสะโพก', value: item.hips, unit: 'นิ้ว' },
+                      { label: 'ความยาวเสื้อผ้า', value: item.clothing_length, unit: 'ซม.' },
+                    ]
+                      .filter((field) => field.value != null && field.value !== '')
+                      .map((field) => (
+                        <div
+                          key={field.label}
+                          className="rounded-lg bg-muted/50 p-3"
+                        >
+                          <p className="text-xs text-muted-foreground">
+                            {field.label}
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-foreground">
+                            {field.value} {field.unit}
+                          </p>
+                        </div>
+                      ))}
+                  </div>
+                </div>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="flex items-center gap-1 text-muted-foreground">ค่าธรรมเนียม (10%)<Info className="h-3 w-3" /></span>
-                <span className="font-medium text-muted-foreground">-฿{platformFee.toLocaleString()}</span>
+            )}
+
+          {/* Conditions */}
+          {item.conditions && (
+            <div className="mt-5">
+              <h2 className="mb-2 text-sm font-semibold text-foreground">เงื่อนไขการเช่า</h2>
+              <div className="rounded-xl border border-border bg-muted/50 p-3">
+                <div className="flex items-start gap-2">
+                  <Shield className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <p className="text-sm text-muted-foreground">{item.conditions}</p>
+                </div>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">เจ้าของได้รับ</span>
-                <span className="font-medium text-success">{`฿${(totalRental - platformFee).toLocaleString()}`}</span>
+            </div>
+          )}
+
+          {/* Reviews */}
+          <div className="mt-5">
+            <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-foreground">
+              <Star className="h-4 w-4 text-warning" />
+              รีวิวจากผู้เช่า {avgRating && `(${avgRating})`}
+            </h2>
+
+            {itemReviews.length > 0 ? (
+              <div className="space-y-2">
+                {itemReviews.map((review: any) => {
+                  const reviewerName =
+                    review.reviewer_name ||
+                    review.user_name ||
+                    'ผู้ใช้งาน';
+
+                  const reviewId = review.review_id || review.id;
+
+                  // ดึง URL รูปภาพจากฐานข้อมูล
+                  const photoUrls: string[] = Array.isArray(review.photo_urls)
+                    ? review.photo_urls
+                    : [];
+
+                  // แปลง path รูปภาพเป็น URL ของ Backend
+                  const getReviewImageUrl = (url: string) => {
+                    if (/^https?:\/\//i.test(url)) {
+                      return url;
+                    }
+
+                    return `http://localhost:5000${url.startsWith('/') ? '' : '/'
+                      }${url}`;
+                  };
+
+                  return (
+                    <div
+                      key={reviewId}
+                      className="rounded-xl border border-border bg-card p-3"
+                    >
+                      {/* ชื่อผู้รีวิวและคะแนนดาว */}
+                      <div className="mb-1 flex items-center gap-2">
+                        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">
+                          {reviewerName.charAt(0)}
+                        </div>
+
+                        <span className="text-sm font-medium text-card-foreground">
+                          {reviewerName}
+                        </span>
+
+                        <div className="ml-auto flex items-center gap-0.5">
+                          {[1, 2, 3, 4, 5].map((s) => (
+                            <Star
+                              key={s}
+                              className={`h-3 w-3 ${s <= Number(review.rating)
+                                ? 'fill-warning text-warning'
+                                : 'text-border'
+                                }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* ความคิดเห็น */}
+                      <p className="text-xs text-muted-foreground">
+                        {review.comment}
+                      </p>
+
+                      {/* รูปภาพประกอบรีวิว */}
+                      {photoUrls.length > 0 && (
+                        <div className="mt-3 grid grid-cols-3 gap-2">
+                          {photoUrls.map((url, index) => {
+                            const imageUrl = getReviewImageUrl(url);
+
+                            return (
+                              <a
+                                key={`${reviewId}-${index}`}
+                                href={imageUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block overflow-hidden rounded-lg border border-border"
+                                title="คลิกเพื่อดูรูปภาพขนาดใหญ่"
+                              >
+                                <img
+                                  src={imageUrl}
+                                  alt={`รูปประกอบรีวิว ${index + 1}`}
+                                  loading="lazy"
+                                  className="h-24 w-full object-cover transition-transform hover:scale-105"
+                                />
+                              </a>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* วันที่รีวิว */}
+                      {review.created_at && (
+                        <p className="mt-2 text-[10px] text-muted-foreground/60">
+                          {new Date(review.created_at).toLocaleDateString('th-TH')}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="rounded-xl border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
+                ยังไม่มีรีวิว
+              </p>
+            )}
+          </div>
+
+        </div>
+
+        {/* Right: Rental Calculator */}
+        <aside className="min-w-0 lg:sticky lg:top-24">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-foreground">
+              <Calculator className="h-4 w-4 text-primary" />
+              คำนวณค่าเช่า
+            </h2>
+            <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">จำนวนวัน</span>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setDays(Math.max(1, days - 1))} className="flex h-8 w-8 items-center justify-center rounded-lg bg-secondary text-secondary-foreground font-bold">-</button>
+                  <span className="w-8 text-center text-lg font-bold text-foreground">{days}</span>
+                  <button onClick={() => setDays(days + 1)} className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">+</button>
+                </div>
+              </div>
+              <div className="border-t border-border pt-3 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">ค่าเช่า ({days} วัน × ฿{pricePerDay})</span>
+                  <span className="font-medium text-foreground">฿{totalRental.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="flex items-center gap-1 text-muted-foreground">ค่าธรรมเนียม (10%)<Info className="h-3 w-3" /></span>
+                  <span className="font-medium text-muted-foreground">-฿{platformFee.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">เจ้าของได้รับ</span>
+                  <span className="font-medium text-success">{`฿${(totalRental - platformFee).toLocaleString()}`}</span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </aside>
+
       </div>
 
       {/* Fixed Bottom */}
-      <div className="fixed bottom-0 left-0 right-0 border-t border-border bg-card px-5 py-3 safe-bottom">
-        <div className="mx-auto max-w-lg flex items-center gap-3">
+      <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white/95 px-5 py-4 shadow-lg backdrop-blur-md">
+        <div className="mx-auto flex max-w-5xl items-center gap-4">
           <div className="flex-1">
             <p className="text-xs text-muted-foreground">ยอดชำระ ({days} วัน)</p>
             <p className="text-lg font-bold text-primary">฿{totalPayment.toLocaleString()}</p>
@@ -399,10 +756,19 @@ const ItemDetail = () => {
             </div>
 
             <div>
-              <h4 className="font-semibold text-foreground mb-1">4. ข้อผูกพัน</h4>
-              <p>ผู้เช่าจะต้องคืนสิ่งของตรงเวลา หากเกินกำหนดจะมีค่าปรับตามที่ได้ตกลง</p>
-              <p className="mt-1">ค่าปรับล่าช้า: ฿{lateFee || '0'} ต่อวัน</p>
-              <Input value={lateFee} onChange={(e) => setLateFee(e.target.value)} placeholder="กรอกค่าปรับล่าช้า" />
+              <h4 className="font-semibold text-foreground mb-1">
+                4. ข้อผูกพัน
+              </h4>
+
+              <p>
+                ผู้เช่าจะต้องคืนสิ่งของตรงเวลา
+                หากมีการคืนล่าช้าหรือเกิดความเสียหาย
+                ผู้ให้เช่าจะเป็นผู้ประเมินค่าปรับตามเงื่อนไขของการเช่า
+              </p>
+
+              <p className="mt-2 font-medium text-foreground">
+                ค่าปรับ: ผู้ให้เช่าจะเป็นผู้ประเมินเมื่อมีการคืนสินค้า
+              </p>
             </div>
 
             <div className="rounded-lg border border-border bg-muted/30 p-3">
@@ -421,7 +787,7 @@ const ItemDetail = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </div >
   );
 };
 

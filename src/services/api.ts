@@ -35,23 +35,61 @@ export const submitVerification = async (payload: {
 };
 
 // --- E-Agreements ---
-export const fetchAgreementByRentalId = async (rentalId: string): Promise<{ success: boolean; data: Agreement | null }> => {
-    const res = await fetch(`${API_BASE_URL}/agreements/rental/${rentalId}`);
-    return res.json();
+
+export const fetchAgreementByRentalId = async (
+    rentalId: string
+): Promise<{ success: boolean; data: Agreement | null }> => {
+    const token = localStorage.getItem('token');
+
+    if (!token) {
+        throw new Error('กรุณาเข้าสู่ระบบก่อน');
+    }
+
+    const res = await fetch(
+        `${API_BASE_URL}/agreements/rental/${rentalId}`,
+        {
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        }
+    );
+
+    const result = await res.json();
+
+    if (!res.ok) {
+        throw new Error(result.error || 'ไม่สามารถโหลดข้อมูลสัญญาได้');
+    }
+
+    return result;
 };
 
 export const signAgreement = async (payload: {
     rental_id: string;
-    contract_terms: string;
-    borrower_accepted: boolean;
-    lender_accepted: boolean;
 }) => {
+    const token = localStorage.getItem('token');
+
+    if (!token) {
+        throw new Error('กรุณาเข้าสู่ระบบก่อน');
+    }
+
     const res = await fetch(`${API_BASE_URL}/agreements`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+            rental_id: payload.rental_id,
+        }),
     });
-    return res.json();
+
+    const result = await res.json();
+
+    if (!res.ok) {
+        throw new Error(result.error || 'ไม่สามารถยอมรับสัญญาได้');
+    }
+
+    return result;
 };
 
 // --- Chat Messages ---
@@ -75,14 +113,44 @@ export const sendChatMessage = async (payload: {
 };
 
 // --- Notifications ---
-export const fetchNotifications = async (userId: string): Promise<{ success: boolean; data: Notification[] }> => {
-    const res = await fetch(`${API_BASE_URL}/notifications/user/${userId}`);
+
+export const fetchNotifications = async (): Promise<{
+    success: boolean;
+    data: Notification[];
+}> => {
+    const token = localStorage.getItem('token');
+
+    const res = await fetch(`${API_BASE_URL}/notifications`, {
+        headers: {
+            Authorization: `Bearer ${token}`,
+        },
+    });
+
+    if (!res.ok) {
+        throw new Error('ไม่สามารถโหลดการแจ้งเตือนได้');
+    }
+
     return res.json();
 };
 
-export const markNotificationAsRead = async (notificationId: string) => {
-    const res = await fetch(`${API_BASE_URL}/notifications/${notificationId}/read`, {
-        method: 'PATCH',
-    });
+export const markNotificationAsRead = async (
+    notificationId: string
+) => {
+    const token = localStorage.getItem('token');
+
+    const res = await fetch(
+        `${API_BASE_URL}/notifications/${notificationId}/read`,
+        {
+            method: 'PATCH',
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        }
+    );
+
+    if (!res.ok) {
+        throw new Error('ไม่สามารถอัปเดตสถานะการแจ้งเตือนได้');
+    }
+
     return res.json();
 };

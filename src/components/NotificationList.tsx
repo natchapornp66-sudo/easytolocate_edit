@@ -6,7 +6,7 @@ export const NotificationList: React.FC<{ userId: string }> = ({ userId }) => {
     const [notifications, setNotifications] = useState<Notification[]>([]);
 
     const loadNotifications = () => {
-        fetchNotifications(userId).then((res) => {
+        fetchNotifications().then((res) => {
             if (res.success) setNotifications(res.data);
         });
     };

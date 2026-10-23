@@ -3,25 +3,80 @@ import { useNavigate } from 'react-router-dom';
 import { Mail, Lock, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { loginWithCredentials } from '@/lib/auth';
+import { setAuthSession } from '@/lib/auth';
+import { apiGet } from '@/lib/api';
 
 const AdminLogin = () => {
-  const navigate = useNavigate();
-  const [email, setEmail] = useState('admin@easytolocate.com');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const navigate = useNavigate();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const session = loginWithCredentials(email, password);
 
-    if (!session || session.role !== 'admin') {
-      setError('Invalid admin credentials');
-      return;
+    if (isSubmitting) return;
+
+    setIsSubmitting(true);
+    setError('');
+
+    try {
+      // ใช้ Login API จริงของระบบ
+      const response = await fetch('http://localhost:5000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.token) {
+        throw new Error(result.error || 'อีเมลหรือรหัสผ่านไม่ถูกต้อง');
+      }
+
+      // ตรวจสิทธิ์ Admin ผ่าน Backend โดยตรง
+      const adminResponse = await fetch('http://localhost:5000/api/admin/me', {
+        headers: {
+          Authorization: `Bearer ${result.token}`,
+        },
+      });
+
+      const adminResult = await adminResponse.json();
+
+      if (!adminResponse.ok || !adminResult.success) {
+        throw new Error(
+          adminResult.error || 'บัญชีนี้ไม่มีสิทธิ์ผู้ดูแลระบบ'
+        );
+      }
+
+      // บันทึก Token หลังจากตรวจสิทธิ์ผ่านแล้ว
+      localStorage.setItem('token', result.token);
+
+      setAuthSession({
+        userId: adminResult.userId,
+        email: email.trim(),
+        fullName: result.user?.full_name || result.user?.fullName || 'Administrator',
+        role: 'admin',
+      });
+
+      navigate('/admin/dashboard', { replace: true });
+
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'เข้าสู่ระบบผู้ดูแลไม่สำเร็จ'
+      );
+    } finally {
+      setIsSubmitting(false);
     }
-
-    navigate('/admin/dashboard');
   };
 
   return (
@@ -76,8 +131,12 @@ const AdminLogin = () => {
 
             {error && <p className="text-sm text-red-400">{error}</p>}
 
-            <Button type="submit" className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-semibold">
-              Sign in to admin panel
+            <Button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
+            >
+              {isSubmitting ? 'กำลังเข้าสู่ระบบ...' : 'Sign in to admin panel'}
             </Button>
           </form>
 
