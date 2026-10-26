@@ -54,6 +54,7 @@ const ItemDetail = () => {
   const [days, setDays] = useState(1);
   const [showAgreement, setShowAgreement] = useState(false);
   const [agreementStart, setAgreementStart] = useState(() => new Date());
+  const [agreementDateNotice, setAgreementDateNotice] = useState('');
   const [agreementAccepted, setAgreementAccepted] = useState(false);
   const [lateFee, setLateFee] = useState('');
   const [user, setUser] = useState<any>(null);
@@ -283,10 +284,19 @@ const ItemDetail = () => {
     }
 
     setAgreementStart(new Date());
+    setAgreementAccepted(false);
+    setAgreementDateNotice('');
     setShowAgreement(true);
   };
 
   const handleAcceptAgreement = async () => {
+    const now = new Date();
+    if (getRentalDates(now, days).start_date !== rentalDates.start_date) {
+      setAgreementStart(now);
+      setAgreementAccepted(false);
+      setAgreementDateNotice('วันเปลี่ยนแล้ว ระบบอัปเดตวันที่เช่าเป็นวันนี้ กรุณาตรวจสอบวันที่และยอมรับสัญญาอีกครั้ง');
+      return;
+    }
     if (!agreementAccepted) {
       toast({ title: 'กรุณายอมรับสัญญาก่อน', variant: 'destructive' });
       return;
@@ -753,6 +763,7 @@ const ItemDetail = () => {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-5 text-sm leading-7 text-muted-foreground sm:text-base">
+            {agreementDateNotice && <p role="status" className="rounded-lg bg-amber-50 p-3 text-amber-900">{agreementDateNotice}</p>}
             <p className="text-xs text-muted-foreground">
               เลขที่สัญญา: AGR-{Date.now()} | วันที่: {today}
             </p>

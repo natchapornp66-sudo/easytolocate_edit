@@ -52,10 +52,38 @@ describe('reported UI regressions', () => {
     }
     await act(async () => { [...container.querySelectorAll('button')].find(b => b.textContent?.trim() === 'ขอเช่า')!.click(); });
     expect(document.body.textContent).toContain(`ระยะเวลา: ${from} ถึง ${to} (${days} วัน)`);
-    // Accepting after midnight must still submit the dates the borrower reviewed.
-    vi.setSystemTime(new Date(start.getTime() + 86400000));
     await act(async () => { (document.querySelector('[role="checkbox"]') as HTMLButtonElement).click(); });
     await act(async () => { [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === 'ยอมรับและดำเนินการต่อ')!.click(); });
+    const request = vi.mocked(fetch).mock.calls.find(([url, options]) => String(url).endsWith('/rentals') && options?.method === 'POST');
+    expect(request).toBeDefined();
+    expect(JSON.parse(String(request![1]!.body))).toMatchObject({ start_date: from, end_date: to, total_days: days });
+  });
+  it.each([
+    { start: new Date(2026, 9, 27, 23, 59), next: new Date(2026, 9, 28, 0, 1), days: 1, from: '2026-10-28', to: '2026-10-28' },
+    { start: new Date(2026, 9, 31, 23, 59), next: new Date(2026, 10, 1, 0, 1), days: 2, from: '2026-11-01', to: '2026-11-02' },
+    { start: new Date(2026, 11, 31, 23, 59), next: new Date(2027, 0, 1, 0, 1), days: 2, from: '2027-01-01', to: '2027-01-02' },
+  ])('requires reviewing refreshed dates after midnight: $from', async ({ start, next, days, from, to }) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(start);
+    localStorage.setItem('easy_to_locate_auth', JSON.stringify({ userId: 'qa-borrower', role: 'user', fullName: 'QA borrower' }));
+    localStorage.setItem('token', 'qa-token');
+    await act(async () => root.render(<MemoryRouter initialEntries={['/items/qa-item']}><Routes><Route path="/items/:id" element={<ItemDetail />} /></Routes></MemoryRouter>));
+    for (let i = 1; i < days; i++) {
+      await act(async () => { [...container.querySelectorAll('button')].find(b => b.textContent?.trim() === '+')!.click(); });
+    }
+    await act(async () => { [...container.querySelectorAll('button')].find(b => b.textContent?.trim() === 'ขอเช่า')!.click(); });
+    await act(async () => { (document.querySelector('[role="checkbox"]') as HTMLButtonElement).click(); });
+    vi.setSystemTime(next);
+    const accept = async () => act(async () => { [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === 'ยอมรับและดำเนินการต่อ')!.click(); });
+    await accept();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain('วันเปลี่ยนแล้ว');
+    expect(document.body.textContent).toContain(`ระยะเวลา: ${from} ถึง ${to} (${days} วัน)`);
+    expect(document.querySelector('[role="checkbox"]')).toHaveAttribute('data-state', 'unchecked');
+    await accept();
+    expect(fetch).not.toHaveBeenCalled();
+    await act(async () => { (document.querySelector('[role="checkbox"]') as HTMLButtonElement).click(); });
+    await accept();
     const request = vi.mocked(fetch).mock.calls.find(([url, options]) => String(url).endsWith('/rentals') && options?.method === 'POST');
     expect(request).toBeDefined();
     expect(JSON.parse(String(request![1]!.body))).toMatchObject({ start_date: from, end_date: to, total_days: days });
