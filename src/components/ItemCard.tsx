@@ -1,3 +1,4 @@
+import { API_BASE_URL } from '@/lib/api';
 import { useNavigate } from 'react-router-dom';
 import { ArrowUpRight, MapPin } from 'lucide-react';
 
@@ -5,7 +6,7 @@ interface ItemCardProps {
   item: any;
 }
 
-const BACKEND_URL = 'http://localhost:5000';
+const BACKEND_URL = API_BASE_URL;
 const fallbackImage =
   'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><rect width="300" height="200" fill="%23e2e8f0"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%2394a3b8" font-family="sans-serif" font-size="16">No Image</text></svg>';
 

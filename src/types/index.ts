@@ -68,9 +68,8 @@ export interface Rental {
 export interface UserVerification {
   verification_id: string;
   user_id: string;
-  id_card_number: string;
-  id_card_image_url: string;
-  selfie_image_url: string;
+  id_card_last4?: string;
+  verified_at?: string | null;
   status: 'pending' | 'approved' | 'rejected';
   created_at: string;
   updated_at?: string;
@@ -118,7 +117,7 @@ export interface Notification {
   user_id?: string;
   title: string;
   message: string;
-  type?: 'request' | 'approval' | 'reminder' | 'review' | 'system' | 'payment';
+  type?: 'request' | 'approval' | 'reminder' | 'review' | 'system' | 'payment' | 'dispute_resolved';
   read?: boolean;
   is_read: boolean; // ตรง DB (เดิมใช้ read)
   created_at: string;

@@ -10,11 +10,16 @@ export const Chat = () => {
 
   const [chats, setChats] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
+    let fetching = false;
 
     const loadChats = async () => {
+      if (fetching) return;
+      fetching = true;
       try {
         // ดึง User ที่ Login จริง
         const session = getAuthSession();
@@ -39,16 +44,18 @@ export const Chat = () => {
               : [];
 
           setChats(actualData);
+          setError('');
         }
 
       } catch (err) {
         console.error('Failed to load chats:', err);
 
         if (isMounted) {
-          setChats([]);
+          setError('ไม่สามารถโหลดรายการแชตได้ กรุณาลองใหม่');
         }
 
       } finally {
+        fetching = false;
         if (isMounted) {
           setIsLoading(false);
         }
@@ -56,11 +63,15 @@ export const Chat = () => {
     };
 
     loadChats();
+    const timer = window.setInterval(loadChats, 3000);
+    window.addEventListener('focus', loadChats);
 
     return () => {
       isMounted = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', loadChats);
     };
-  }, []);
+  }, [reload]);
 
 
 
@@ -80,6 +91,7 @@ export const Chat = () => {
 
       {/* Chat List */}
       <div className="-mt-3 rounded-t-3xl bg-background px-4 pt-4">
+        {error && <div role="alert" className="mb-3 text-sm text-red-600">{error} <button type="button" onClick={() => setReload(n => n + 1)} className="underline">ลองใหม่</button></div>}
 
         {isLoading ? (
           <div className="flex min-h-[200px] items-center justify-center text-sm text-muted-foreground">
@@ -176,7 +188,7 @@ export const Chat = () => {
             })}
 
             {/* ไม่มี Chat */}
-            {chats.length === 0 && (
+            {!error && chats.length === 0 && (
               <div className="flex flex-col items-center py-12 text-muted-foreground">
 
                 <MessageCircle className="mb-2 h-8 w-8" />

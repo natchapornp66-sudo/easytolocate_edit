@@ -1,3 +1,4 @@
+import { buildApiUrl } from '@/lib/api';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Mail, Lock, Eye, EyeOff, X, ShieldCheck } from 'lucide-react';
@@ -6,8 +7,8 @@ import { Input } from '@/components/ui/input';
 import { setAuthSession } from '@/lib/auth';
 const Login = () => {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('somchai@example.com');
-  const [password, setPassword] = useState('123456');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
 
@@ -16,7 +17,7 @@ const Login = () => {
     setError('');
 
     try {
-      const response = await fetch('http://localhost:5000/api/auth/login', {
+      const response = await fetch(buildApiUrl('/auth/login'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

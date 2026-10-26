@@ -14,20 +14,22 @@ const categoryIcons: Record<Category, React.ElementType> = {
 };
 
 interface CategoryFilterProps {
-  selected: Category;
-  onSelect: (cat: Category) => void;
+  selected: string;
+  onSelect: (cat: string) => void;
+  options?: { value: string; label: string }[];
 }
 
-const CategoryFilter = ({ selected, onSelect }: CategoryFilterProps) => {
+const CategoryFilter = ({ selected, onSelect, options = categories.map(cat => ({ value: cat, label: cat })) }: CategoryFilterProps) => {
   return (
     <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
-      {categories.map((cat) => {
-        const Icon = categoryIcons[cat];
-        const isActive = selected === cat;
+      {options.map((cat) => {
+        const Icon = categoryIcons[cat.label as Category] || MoreHorizontal;
+        const isActive = selected === cat.value;
         return (
           <button
-            key={cat}
-            onClick={() => onSelect(cat)}
+            key={cat.value}
+            onClick={() => onSelect(cat.value)}
+            aria-pressed={isActive}
             className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all ${
               isActive
                 ? 'bg-primary text-primary-foreground shadow-sm'
@@ -35,7 +37,7 @@ const CategoryFilter = ({ selected, onSelect }: CategoryFilterProps) => {
             }`}
           >
             <Icon className="h-3.5 w-3.5" />
-            {cat}
+            {cat.label}
           </button>
         );
       })}

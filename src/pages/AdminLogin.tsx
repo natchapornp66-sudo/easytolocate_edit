@@ -1,3 +1,4 @@
+import { buildApiUrl } from '@/lib/api';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Mail, Lock, Eye, EyeOff, ShieldCheck } from 'lucide-react';
@@ -24,7 +25,7 @@ const AdminLogin = () => {
 
     try {
       // ใช้ Login API จริงของระบบ
-      const response = await fetch('http://localhost:5000/api/auth/login', {
+      const response = await fetch(buildApiUrl('/auth/login'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -42,7 +43,7 @@ const AdminLogin = () => {
       }
 
       // ตรวจสิทธิ์ Admin ผ่าน Backend โดยตรง
-      const adminResponse = await fetch('http://localhost:5000/api/admin/me', {
+      const adminResponse = await fetch(buildApiUrl('/admin/me'), {
         headers: {
           Authorization: `Bearer ${result.token}`,
         },

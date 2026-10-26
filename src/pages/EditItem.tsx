@@ -6,8 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import BottomNav from '@/components/BottomNav';
 import { toast } from '@/hooks/use-toast';
+import { API_BASE_URL } from '@/lib/api';
 
-const API_URL = 'http://localhost:5000';
+const API_URL = API_BASE_URL;
 
 const EditItem = () => {
     const navigate = useNavigate();
@@ -245,6 +246,7 @@ const EditItem = () => {
                                 <Input
                                     type="number"
                                     min="0.01"
+                                    max="99999999.99"
                                     step="0.01"
                                     value={form.daily_price}
                                     onChange={(e) => update('daily_price', e.target.value)}

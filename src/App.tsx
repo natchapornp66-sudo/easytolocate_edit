@@ -22,6 +22,9 @@ import AppNavbar from "./components/AppNavbar";
 import { ProtectedRoute, PublicOnlyRoute } from "./components/ProtectedRoute";
 import EditItem from "./pages/EditItem";
 import BankAccount from './pages/BankAccount';
+import Disputes from './pages/Disputes';
+import NewDispute from './pages/NewDispute';
+import DisputeDetail from './pages/DisputeDetail';
 
 const queryClient = new QueryClient();
 
@@ -66,6 +69,35 @@ const AppShell = () => {
 
           <Route path="/dashboard" element={<ProtectedRoute><Transactions /></ProtectedRoute>} />
           <Route path="/transactions" element={<ProtectedRoute><Transactions /></ProtectedRoute>} />
+
+          <Route
+            path="/disputes"
+            element={
+              <ProtectedRoute>
+                <Disputes />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/disputes/new"
+            element={
+              <ProtectedRoute>
+                <NewDispute />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/disputes/:id"
+            element={
+              <ProtectedRoute>
+                <DisputeDetail />
+              </ProtectedRoute>
+            }
+          />
+
+
 
           <Route path="/transactions/:id" element={<ProtectedRoute><RentalDetail /></ProtectedRoute>} />
 

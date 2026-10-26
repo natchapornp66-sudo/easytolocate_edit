@@ -5,6 +5,7 @@ import {
   ClipboardList,
   PlusCircle,
   MessageCircle,
+  MessageSquareWarning,
   UserRound,
   LogOut,
   LayoutDashboard,
@@ -29,12 +30,15 @@ const AppNavbar = () => {
     navigate('/');
   };
 
+
   const menuItems = [
     { label: 'หน้าแรก', path: '/', icon: Home },
     { label: 'รายการเช่า', path: '/transactions', icon: ClipboardList },
+    { label: 'ข้อพิพาท', path: '/disputes', icon: MessageSquareWarning },
     { label: 'ลงประกาศ', path: '/post-item', icon: PlusCircle },
     { label: 'แชต', path: '/chat', icon: MessageCircle },
   ];
+
 
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur-xl">
@@ -77,8 +81,8 @@ const AppNavbar = () => {
                   type="button"
                   onClick={() => navigate(item.path)}
                   className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors ${active
-                      ? 'bg-blue-50 text-blue-700'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                     }`}
                 >
                   <Icon className="h-4 w-4" />

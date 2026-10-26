@@ -1,12 +1,12 @@
 const API_BASE_URL = (
   (import.meta.env.VITE_API_URL as string | undefined) ||
   (import.meta.env.NEXT_PUBLIC_API_URL as string | undefined) ||
-  'http://localhost:5000'
-).replace(/\/$/, '');
+  (import.meta.env.DEV ? 'http://localhost:5000' : '')
+).replace(/\/+$/, '').replace(/\/api$/, '');
 
 export const buildApiUrl = (endpoint: string) => {
   const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  const apiEndpoint = normalizedEndpoint.startsWith('/api/')
+  const apiEndpoint = normalizedEndpoint === '/api' || normalizedEndpoint.startsWith('/api/')
     ? normalizedEndpoint
     : `/api${normalizedEndpoint}`;
 

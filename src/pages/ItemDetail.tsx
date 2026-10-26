@@ -1,9 +1,11 @@
+import { buildApiUrl } from '@/lib/api';
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, MapPin, Star, Shield, MessageCircle, Calculator, Info, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
-import { apiGet } from '@/lib/api';
+import { apiGet, API_BASE_URL } from '@/lib/api';
+import { getAuthSession } from '@/lib/auth';
 import {
   Dialog,
   DialogContent,
@@ -44,6 +46,8 @@ const ItemDetail = () => {
 
   const [item, setItem] = useState<any>(null);
   const [itemReviews, setItemReviews] = useState<any[]>([]);
+  const [reviewsError, setReviewsError] = useState('');
+  const [reviewsReload, setReviewsReload] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
   const [days, setDays] = useState(1);
@@ -55,13 +59,18 @@ const ItemDetail = () => {
 
   // ดึงข้อมูล User จาก LocalStorage
   useEffect(() => {
-    const savedUser = localStorage.getItem('user');
-    if (savedUser) {
-      try {
-        setUser(JSON.parse(savedUser));
-      } catch (e) {
-        console.error('Failed to parse user from localStorage:', e);
-      }
+    const session = getAuthSession();
+
+    if (session.role === 'user' && session.userId) {
+      setUser({
+        id: session.userId,
+        user_id: session.userId,
+        full_name: session.fullName,
+        email: session.email,
+        role: session.role,
+      });
+    } else {
+      setUser(null);
     }
   }, []);
 
@@ -70,19 +79,21 @@ const ItemDetail = () => {
     let isMounted = true;
 
     const fetchItemAndReviews = async () => {
+      setIsLoading(true);
+      setReviewsError('');
       try {
         // 1. ดึงข้อมูลรายละเอียดสินค้า
         const itemData = await apiGet<any>(
           `/api/items/${id}`
         );
 
-        console.log('ITEM DATA:', itemData);
 
         if (isMounted) {
           setItem(itemData.data || itemData);
         }
 
         // 2. ดึงข้อมูลรีวิวของสินค้านี้
+        try {
         const reviewsData = await apiGet<any>(
           `/api/items/${id}/reviews`
         );
@@ -95,6 +106,9 @@ const ItemDetail = () => {
 
         if (isMounted) {
           setItemReviews(actualReviews);
+        }
+        } catch {
+          if (isMounted) { setItemReviews([]); setReviewsError('ไม่สามารถโหลดรีวิวได้ กรุณาลองใหม่'); }
         }
 
       } catch (err) {
@@ -116,7 +130,7 @@ const ItemDetail = () => {
     return () => {
       isMounted = false;
     };
-  }, [id]);
+  }, [id, reviewsReload]);
   useEffect(() => {
     if (!item?.latitude || !item?.longitude) {
       setDistanceKm(null);
@@ -235,9 +249,9 @@ const ItemDetail = () => {
   if (!rawImage || rawImage.includes('example.com')) {
     rawImage = `https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=500`; // ใช้รูปเครื่องมือช่าง/อุปกรณ์ทั่วไปแทน
   } else if (!rawImage.startsWith('http') && !rawImage.startsWith('/')) {
-    rawImage = `http://localhost:5000/uploads/${rawImage}`;
+    rawImage = `${API_BASE_URL}/uploads/${rawImage}`;
   } else if (rawImage.startsWith('/')) {
-    rawImage = `http://localhost:5000${rawImage}`;
+    rawImage = `${API_BASE_URL}${rawImage}`;
   }
 
   const images = [rawImage];
@@ -302,7 +316,7 @@ const ItemDetail = () => {
 
       }
 
-      const res = await fetch('http://localhost:5000/api/rentals', {
+      const res = await fetch(buildApiUrl('/rentals'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -563,7 +577,7 @@ const ItemDetail = () => {
               รีวิวจากผู้เช่า {avgRating && `(${avgRating})`}
             </h2>
 
-            {itemReviews.length > 0 ? (
+            {reviewsError ? <p role="alert" className="text-sm text-red-600">{reviewsError} <button type="button" className="underline" onClick={() => setReviewsReload(n => n + 1)}>ลองใหม่</button></p> : itemReviews.length > 0 ? (
               <div className="space-y-2">
                 {itemReviews.map((review: any) => {
                   const reviewerName =
@@ -584,7 +598,7 @@ const ItemDetail = () => {
                       return url;
                     }
 
-                    return `http://localhost:5000${url.startsWith('/') ? '' : '/'
+                    return `${API_BASE_URL}${url.startsWith('/') ? '' : '/'
                       }${url}`;
                   };
 
@@ -722,15 +736,26 @@ const ItemDetail = () => {
 
       {/* e-Agreement Dialog */}
       <Dialog open={showAgreement} onOpenChange={setShowAgreement}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto max-w-md">
+
+        <DialogContent
+          style={{
+            width: 'calc(100vw - 32px)',
+            maxWidth: '760px',
+            maxHeight: '85dvh',
+          }}
+          className="overflow-y-auto rounded-2xl p-5 sm:p-8"
+        >
+
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base font-display">
+            <DialogTitle className="flex items-center gap-3 text-xl font-semibold">
               <FileText className="h-5 w-5 text-primary" />
               สัญญาเช่าสิ่งของ (e-Agreement)
             </DialogTitle>
           </DialogHeader>
-          <div className="text-xs text-muted-foreground space-y-3 leading-relaxed">
-            <p className="text-[10px] text-muted-foreground/60">เลขที่สัญญา: AGR-{Date.now()} | วันที่: {today}</p>
+          <div className="space-y-5 text-sm leading-7 text-muted-foreground sm:text-base">
+            <p className="text-xs text-muted-foreground">
+              เลขที่สัญญา: AGR-{Date.now()} | วันที่: {today}
+            </p>
 
             <div>
               <h4 className="font-semibold text-foreground mb-1">1. คู่สัญญา</h4>

@@ -1,3 +1,4 @@
+import { buildApiUrl } from '@/lib/api';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Mail, Lock, User, Phone, MapPin, Eye, EyeOff, ArrowLeft, Navigation } from 'lucide-react';
@@ -86,7 +87,7 @@ const Register = () => {
 
       try {
         // ส่งข้อมูลไปยัง Backend API
-        const response = await fetch('http://localhost:5000/api/auth/register', {
+        const response = await fetch(buildApiUrl('/auth/register'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

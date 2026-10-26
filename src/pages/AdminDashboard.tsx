@@ -1,6 +1,8 @@
+import { API_BASE_URL, buildApiUrl } from '@/lib/api';
 import { useEffect, useState } from 'react';
 import { Package, ClipboardList, Shield, Users, Trash2 } from 'lucide-react';
 import AdminLayout from '@/components/AdminLayout';
+import AdminVerifications from '@/components/AdminVerifications';
 import { apiGet, apiPatch } from '@/lib/api';
 
 const fallbackStats = [
@@ -68,6 +70,21 @@ type AdminDispute = {
   item_title: string | null;
   borrower_name: string | null;
   lender_name: string | null;
+  category?: string | null;
+  decision?: string | null;
+  decision_reason?: string | null;
+  adjusted_fine_amount?: number | string | null;
+  resolved_at?: string | null;
+};
+
+type AdminDisputeMessage = {
+  message_id: string;
+  dispute_id: string;
+  sender_id: string;
+  sender_name: string | null;
+  sender_role: 'borrower' | 'lender' | 'admin';
+  message: string;
+  created_at: string;
 };
 
 type RentalInspection = {
@@ -80,6 +97,18 @@ type RentalInspection = {
   created_at: string;
 };
 
+
+type AdditionalDisputeEvidence = {
+  evidence_id: string;
+  dispute_id: string;
+  uploaded_by: string;
+  uploader_name: string | null;
+  description: string | null;
+  created_at: string;
+  file_url: string;
+};
+
+
 type DisputeEvidence = {
   dispute: {
     dispute_id: string;
@@ -88,7 +117,9 @@ type DisputeEvidence = {
     status: string;
   };
   inspections: RentalInspection[];
+  additional_evidence?: AdditionalDisputeEvidence[];
 };
+
 
 const getEvidenceImageUrl = (url: string) => {
   if (!url) return "";
@@ -97,8 +128,274 @@ const getEvidenceImageUrl = (url: string) => {
     return url;
   }
 
-  return `http://localhost:5000${url.startsWith("/") ? url : `/${url}`}`;
+  return `${API_BASE_URL}${url.startsWith("/") ? url : `/${url}`}`;
 };
+
+type ProtectedEvidenceImageProps = {
+  disputeId: string;
+  photoUrl: string;
+  index: number;
+};
+
+const ProtectedEvidenceImage = ({
+  disputeId,
+  photoUrl,
+  index,
+}: ProtectedEvidenceImageProps) => {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let objectUrl: string | null = null;
+
+    const loadImage = async () => {
+      setLoading(true);
+      setError('');
+      setBlobUrl(null);
+
+      try {
+
+        const normalizedUrl = photoUrl.trim();
+
+        // รองรับเฉพาะไฟล์หลักฐานที่เก็บอยู่ในระบบจริง
+        if (!normalizedUrl.startsWith('/uploads/rentals/')) {
+          throw new Error(
+            'รูปหลักฐานนี้เป็น URL ตัวอย่างเก่า ไม่พบไฟล์ในระบบ'
+          );
+        }
+
+        const filename = normalizedUrl.slice('/uploads/rentals/'.length);
+
+
+        const validFilename =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png)$/i;
+
+        if (!filename || !validFilename.test(filename)) {
+          throw new Error('ชื่อไฟล์รูปหลักฐานไม่ถูกต้อง');
+        }
+
+        const token = localStorage.getItem('token');
+
+        if (!token) {
+          throw new Error('กรุณาเข้าสู่ระบบอีกครั้ง');
+        }
+
+        const response = await fetch(
+          buildApiUrl(`/admin/disputes/${disputeId}/inspection-image/${filename}`),
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            signal: controller.signal,
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            `โหลดรูปหลักฐานไม่สำเร็จ (HTTP ${response.status})`
+          );
+        }
+
+        const blob = await response.blob();
+
+        if (!blob.type.startsWith('image/')) {
+          throw new Error('ข้อมูลที่ได้รับไม่ใช่รูปภาพ');
+        }
+
+        if (controller.signal.aborted) return;
+
+        objectUrl = URL.createObjectURL(blob);
+        setBlobUrl(objectUrl);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'ไม่สามารถโหลดรูปหลักฐานได้'
+        );
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadImage();
+
+    return () => {
+      controller.abort();
+
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [disputeId, photoUrl]);
+
+  if (loading) {
+    return (
+      <p className="text-xs text-slate-400">
+        กำลังโหลดรูปภาพ...
+      </p>
+    );
+  }
+
+  if (error || !blobUrl) {
+    return (
+      <p className="text-xs text-red-400">
+        {error || 'ไม่พบรูปภาพ'}
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <img
+        src={blobUrl}
+        alt={`รูปหลักฐานที่ ${index + 1}`}
+        className="max-h-56 w-full rounded-lg border border-slate-700 object-contain"
+      />
+
+      <a
+        href={blobUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block text-xs text-blue-400 underline"
+      >
+        เปิดรูปภาพขนาดเต็ม
+      </a>
+    </div>
+  );
+};
+
+type AdditionalEvidenceImageProps = {
+  fileUrl: string;
+};
+
+const AdditionalEvidenceImage = ({
+  fileUrl,
+}: AdditionalEvidenceImageProps) => {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let objectUrl: string | null = null;
+
+    const loadImage = async () => {
+      setLoading(true);
+      setImageUrl(null);
+      setError('');
+
+      try {
+        // รับเฉพาะ Endpoint ที่ระบบสร้างขึ้นสำหรับหลักฐาน
+        const validPath =
+          /^\/api\/disputes\/[0-9a-f-]{36}\/evidence\/[0-9a-f-]{36}\/file$/i;
+
+        if (!validPath.test(fileUrl)) {
+          throw new Error('เส้นทางหลักฐานไม่ถูกต้อง');
+        }
+
+        const token = localStorage.getItem('token');
+
+        if (!token) {
+          throw new Error('กรุณาเข้าสู่ระบบอีกครั้ง');
+        }
+
+        const response = await fetch(
+          `${API_BASE_URL}${fileUrl}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            signal: controller.signal,
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            `โหลดหลักฐานไม่สำเร็จ (HTTP ${response.status})`
+          );
+        }
+
+        const blob = await response.blob();
+
+        if (
+          blob.type !== 'image/jpeg' &&
+          blob.type !== 'image/png'
+        ) {
+          throw new Error('ข้อมูลที่ได้รับไม่ใช่ภาพ JPG หรือ PNG');
+        }
+
+        if (controller.signal.aborted) return;
+
+        objectUrl = URL.createObjectURL(blob);
+        setImageUrl(objectUrl);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'ไม่สามารถแสดงหลักฐานได้'
+        );
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadImage();
+
+    return () => {
+      controller.abort();
+
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [fileUrl]);
+
+  if (loading) {
+    return (
+      <p className="text-xs text-slate-400">
+        กำลังโหลดรูปหลักฐาน...
+      </p>
+    );
+  }
+
+  if (error || !imageUrl) {
+    return (
+      <p className="text-xs text-red-400">
+        {error || 'ไม่พบรูปหลักฐาน'}
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <img
+        src={imageUrl}
+        alt="หลักฐานเพิ่มเติมจากคู่กรณี"
+        className="max-h-56 w-full rounded-lg border border-slate-700 object-contain"
+      />
+
+      <a
+        href={imageUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block text-xs text-blue-400 underline"
+      >
+        เปิดรูปภาพขนาดเต็ม
+      </a>
+    </div>
+  );
+};
+
 
 const AdminDashboard = () => {
   const [stats, setStats] = useState(fallbackStats);
@@ -124,6 +421,27 @@ const AdminDashboard = () => {
   const [evidenceLoading, setEvidenceLoading] = useState(false);
   const [evidenceError, setEvidenceError] = useState('');
   const [evidenceOpen, setEvidenceOpen] = useState(false);
+
+  const [disputeMessages, setDisputeMessages] =
+    useState<AdminDisputeMessage[]>([]);
+
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesError, setMessagesError] = useState('');
+
+
+  const [decisionOpen, setDecisionOpen] = useState(false);
+  const [selectedDispute, setSelectedDispute] =
+    useState<AdminDispute | null>(null);
+
+
+  const [disputeDecision, setDisputeDecision] =
+    useState<'uphold' | 'adjust' | 'waive' | 'general'>('general');
+
+
+  const [decisionReason, setDecisionReason] = useState('');
+  const [adjustedFine, setAdjustedFine] = useState('');
+  const [decisionSubmitting, setDecisionSubmitting] = useState(false);
+
 
 
   useEffect(() => {
@@ -430,17 +748,57 @@ const AdminDashboard = () => {
       setUpdatingItemId(null);
     }
   };
-  const handleViewEvidence = async (disputeId: string) => {
-    setEvidenceOpen(true);
-    setEvidenceLoading(true);
-    setEvidenceError('');
-    setSelectedEvidence(null);
+
+  const loadDisputeMessages = async (disputeId: string) => {
+    setMessagesLoading(true);
+    setMessagesError('');
+    setDisputeMessages([]);
 
     try {
       const token = localStorage.getItem('token');
 
       const response = await fetch(
-        `http://localhost:5000/api/admin/disputes/${disputeId}/evidence`,
+        buildApiUrl(`/admin/disputes/${disputeId}/messages`),
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success ||
+        !Array.isArray(result.data)) {
+        throw new Error(
+          result.error || 'ไม่สามารถโหลดคำชี้แจงได้'
+        );
+      }
+
+      setDisputeMessages(result.data);
+    } catch (error) {
+      setMessagesError(
+        error instanceof Error
+          ? error.message
+          : 'ไม่สามารถโหลดคำชี้แจงได้'
+      );
+    } finally {
+      setMessagesLoading(false);
+    }
+  };
+
+  const handleViewEvidence = async (disputeId: string) => {
+    setEvidenceOpen(true);
+    setEvidenceLoading(true);
+    setEvidenceError('');
+    setSelectedEvidence(null);
+    void loadDisputeMessages(disputeId);
+
+    try {
+      const token = localStorage.getItem('token');
+
+      const response = await fetch(
+        buildApiUrl(`/admin/disputes/${disputeId}/evidence`),
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -464,45 +822,86 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleResolveDispute = async (disputeId: string) => {
-    const confirmed = window.confirm(
-      "ยืนยันการปิดข้อพิพาทนี้หรือไม่?"
-    );
+  const openDecisionDialog = (dispute: AdminDispute) => {
+    setSelectedDispute(dispute);
+    setDisputeDecision('general');
+    setDecisionReason('');
+    setAdjustedFine('');
+    setDecisionOpen(true);
+  };
 
-    if (!confirmed) return;
+
+
+  const handleResolveDispute = async () => {
+    if (!selectedDispute || decisionSubmitting) return;
+
+    const reason = decisionReason.trim();
+
+    if (reason.length < 10 || reason.length > 3000) {
+      alert('กรุณาระบุเหตุผล 10–3000 ตัวอักษร');
+      return;
+    }
+
+    const fineAmount = adjustedFine.trim() === ''
+      ? NaN
+      : Number(adjustedFine);
+
+    if (
+      disputeDecision === 'adjust' &&
+      (!Number.isFinite(fineAmount) || fineAmount <= 0)
+    ) {
+      alert('กรุณากรอกค่าปรับใหม่ให้ถูกต้อง');
+      return;
+    }
+
+    setDecisionSubmitting(true);
 
     try {
-      const token = localStorage.getItem("token");
-
-      const response = await fetch(
-        `http://localhost:5000/api/admin/disputes/${disputeId}/resolve`,
+      const response = await apiPatch<{
+        success: boolean;
+        data: AdminDispute;
+        error?: string;
+      }>(
+        `/api/admin/disputes/${selectedDispute.dispute_id}/resolve`,
         {
-          method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          decision: disputeDecision,
+          decision_reason: reason,
+          adjusted_fine_amount:
+            disputeDecision === 'adjust' ? fineAmount : null,
         }
       );
 
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        alert(result.error || "ไม่สามารถจัดการข้อพิพาทได้");
-        return;
+      if (!response.success) {
+        throw new Error(response.error || 'บันทึกผลไม่สำเร็จ');
       }
 
-      alert("จัดการข้อพิพาทเรียบร้อยแล้ว");
+      setDisputes((current) =>
+        current.map((dispute) =>
+          dispute.dispute_id === selectedDispute.dispute_id
+            ? { ...dispute, ...response.data }
+            : dispute
+        )
+      );
 
-      // โหลดข้อมูลใหม่เพื่อให้สถานะอัปเดต
-      window.location.reload();
+      setDecisionOpen(false);
+      setSelectedDispute(null);
+
+      alert('บันทึกผลการพิจารณาสำเร็จ');
     } catch (error) {
-      console.error("Resolve dispute error:", error);
-      alert("เกิดข้อผิดพลาดในการเชื่อมต่อ Backend");
+      alert(
+        error instanceof Error
+          ? error.message
+          : 'ไม่สามารถบันทึกผลการพิจารณาได้'
+      );
+    } finally {
+      setDecisionSubmitting(false);
     }
   };
+
   return (
     <AdminLayout>
       <div className="space-y-6">
+        <AdminVerifications />
         <section>
           <h2 className="mb-4 text-xl font-bold text-white">Overview</h2>
           {isLoading && <p className="mb-4 text-sm text-slate-400">กำลังโหลดข้อมูลแผงผู้ดูแล...</p>}
@@ -778,13 +1177,33 @@ const AdminDashboard = () => {
                         Dispute Evidence
                       </h2>
 
-                      <button
-                        type="button"
-                        onClick={() => setEvidenceOpen(false)}
-                        className="rounded-lg px-3 py-1 text-slate-300 hover:bg-slate-800"
-                      >
-                        Close
-                      </button>
+
+                      <div className="flex items-center gap-2">
+                        {selectedDispute && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEvidenceOpen(false);
+                              setDecisionOpen(true);
+                            }}
+                            className="rounded-lg border border-blue-500/50 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-300 hover:bg-blue-500/20"
+                          >
+                            กลับไปพิจารณา
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEvidenceOpen(false);
+                            setSelectedDispute(null);
+                          }}
+                          className="rounded-lg px-3 py-1 text-slate-300 hover:bg-slate-800"
+                        >
+                          Close
+                        </button>
+                      </div>
+
                     </div>
 
                     {evidenceLoading && <p>กำลังโหลดหลักฐาน...</p>}
@@ -794,6 +1213,7 @@ const AdminDashboard = () => {
                     )}
 
                     {!evidenceLoading && selectedEvidence && (
+
                       <>
                         <p className="mb-4 text-sm text-slate-300">
                           เหตุผลร้องเรียน: {selectedEvidence.dispute.reason}
@@ -802,6 +1222,8 @@ const AdminDashboard = () => {
                         {selectedEvidence.inspections.length === 0 ? (
                           <p className="text-sm text-slate-400">
                             ไม่พบหลักฐานการตรวจสภาพสำหรับรายการเช่านี้
+
+
                           </p>
                         ) : (
                           <div className="space-y-4">
@@ -855,21 +1277,12 @@ const AdminDashboard = () => {
                                   ) : (
                                     <div className="mt-3 grid grid-cols-2 gap-3">
                                       {photos.map((url, index) => (
-                                        <div key={`${inspection.inspection_id}-${index}`}>
-                                          <img
-                                            src={getEvidenceImageUrl(url)}
-                                            alt="รูปหลักฐาน"
-                                            className="w-full rounded-lg object-contain"
-                                          />
-                                          <a
-                                            href={getEvidenceImageUrl(url)}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="mt-1 block text-xs text-blue-400 underline"
-                                          >
-                                            เปิดรูปภาพ
-                                          </a>
-                                        </div>
+                                        <ProtectedEvidenceImage
+                                          key={`${inspection.inspection_id}-${index}`}
+                                          disputeId={selectedEvidence.dispute.dispute_id}
+                                          photoUrl={url}
+                                          index={index}
+                                        />
                                       ))}
                                     </div>
                                   )}
@@ -878,6 +1291,102 @@ const AdminDashboard = () => {
                             })}
                           </div>
                         )}
+                        <div className="mt-6 border-t border-slate-700 pt-5">
+                          <h3 className="mb-3 text-base font-semibold text-white">
+                            หลักฐานเพิ่มเติมจากผู้เช่าและผู้ให้เช่า
+
+                          </h3>
+
+                          {(selectedEvidence.additional_evidence ?? []).length === 0 ? (
+                            <p className="rounded-lg border border-slate-700 bg-slate-950 p-4 text-sm text-slate-400">
+                              ยังไม่มีการแนบหลักฐานเพิ่มเติมจากคู่กรณี
+                            </p>
+                          ) : (
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              {(selectedEvidence.additional_evidence ?? []).map(
+                                (evidence) => (
+                                  <div
+                                    key={evidence.evidence_id}
+                                    className="rounded-xl border border-slate-700 bg-slate-950 p-4"
+                                  >
+                                    <p className="text-sm font-semibold text-blue-400">
+                                      ผู้ส่งหลักฐาน: {evidence.uploader_name || 'ไม่ระบุชื่อ'}
+                                    </p>
+
+                                    <p className="mt-1 text-xs text-slate-500">
+                                      วันที่ส่ง:{' '}
+                                      {new Date(evidence.created_at).toLocaleString('th-TH')}
+                                    </p>
+
+                                    {evidence.description && (
+                                      <p className="mt-2 whitespace-pre-wrap break-words text-sm text-slate-300">
+                                        {evidence.description}
+                                      </p>
+                                    )}
+
+                                    <div className="mt-3">
+                                      <AdditionalEvidenceImage
+                                        fileUrl={evidence.file_url}
+                                      />
+                                    </div>
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="mt-6 border-t border-slate-700 pt-5">
+                          <h3 className="mb-3 text-base font-semibold text-white">
+                            คำชี้แจงจากคู่กรณี
+                          </h3>
+
+                          {messagesLoading ? (
+                            <p className="text-sm text-slate-400">
+                              กำลังโหลดคำชี้แจง...
+                            </p>
+                          ) : messagesError ? (
+                            <p className="text-sm text-red-400">
+                              {messagesError}
+                            </p>
+                          ) : disputeMessages.length === 0 ? (
+                            <p className="rounded-lg bg-slate-950 p-4 text-sm text-slate-400">
+                              ยังไม่มีคำชี้แจงจากคู่กรณี
+                            </p>
+                          ) : (
+                            <div className="space-y-3">
+                              {disputeMessages.map((item) => (
+                                <div
+                                  key={item.message_id}
+                                  className="rounded-xl border border-slate-700 bg-slate-950 p-4"
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <p className="text-sm font-semibold text-white">
+                                      {item.sender_name || 'ไม่ระบุชื่อ'}
+                                      <span className="ml-2 text-xs text-blue-400">
+                                        {item.sender_role === 'borrower'
+                                          ? '(ผู้เช่า)'
+                                          : item.sender_role === 'lender'
+                                            ? '(ผู้ให้เช่า)'
+                                            : '(Admin)'}
+                                      </span>
+                                    </p>
+
+                                    <span className="text-xs text-slate-500">
+                                      {new Date(item.created_at).toLocaleString('th-TH')}
+                                    </span>
+                                  </div>
+
+                                  <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-300">
+                                    {item.message}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+
                       </>
                     )}
                   </div>
@@ -898,18 +1407,23 @@ const AdminDashboard = () => {
                       <p className="mt-1 text-xs text-slate-400">
                         ผู้แจ้ง: {dispute.reporter_name || 'ไม่ระบุ'}
                       </p>
-                      {dispute.status === "open" && (
+
+                      {dispute.status === 'open' && (
                         <button
                           type="button"
-                          onClick={() => handleResolveDispute(dispute.dispute_id)}
-                          className="mt-2 rounded-lg border border-green-500 px-3 py-1 text-xs text-green-400 hover:bg-green-500/10"
+                          onClick={() => openDecisionDialog(dispute)}
+                          className="mt-2 rounded-lg border border-green-500 px-3 py-2 text-xs font-semibold text-green-400 hover:bg-green-500/10"
                         >
-                          Resolve
+                          พิจารณาข้อพิพาท
                         </button>
                       )}
+
                       <button
                         type="button"
-                        onClick={() => handleViewEvidence(dispute.dispute_id)}
+                        onClick={() => {
+                          setSelectedDispute(null);
+                          void handleViewEvidence(dispute.dispute_id);
+                        }}
                         className="mt-3 rounded-lg border border-blue-500 px-3 py-2 text-xs text-blue-400 hover:bg-blue-500/10"
                       >
                         View Evidence
@@ -929,6 +1443,21 @@ const AdminDashboard = () => {
                   <p className="mt-2 whitespace-pre-wrap break-words text-sm text-slate-300">
                     {dispute.reason}
                   </p>
+
+                  {dispute.status === 'resolved' && dispute.decision && (
+                    <div className="mt-3 rounded-lg border border-slate-700 p-3 text-sm text-slate-200">
+                      <p>ผลการพิจารณา: {{
+                        general: 'พิจารณาเรื่องร้องเรียนทั่วไป',
+                        uphold: 'ยืนยันค่าปรับเดิม',
+                        adjust: 'ปรับลดค่าปรับ',
+                        waive: 'ยกเลิกค่าปรับ',
+                      }[dispute.decision] || dispute.decision}</p>
+                      {dispute.adjusted_fine_amount != null && (
+                        <p>ค่าปรับหลังพิจารณา: ฿{Number(dispute.adjusted_fine_amount).toLocaleString('th-TH')}</p>
+                      )}
+                      <p className="mt-1 whitespace-pre-wrap break-words">เหตุผล: {dispute.decision_reason || 'ไม่ระบุ'}</p>
+                    </div>
+                  )}
 
                   <div className="mt-3 space-y-1 border-t border-slate-800 pt-2">
                     <p className="text-xs text-slate-400">
@@ -954,6 +1483,193 @@ const AdminDashboard = () => {
           </div>
         </section>
       </div>
+
+      {decisionOpen && selectedDispute && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-3 sm:p-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dispute-decision-title"
+            className="max-h-[90dvh] w-full max-w-[650px] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-5 text-white shadow-2xl sm:p-8"
+          >
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <h2
+                id="dispute-decision-title"
+                className="text-xl font-bold"
+              >
+                พิจารณาข้อพิพาท
+              </h2>
+
+              <button
+                type="button"
+                disabled={decisionSubmitting}
+                onClick={() => setDecisionOpen(false)}
+                className="rounded-lg px-3 py-1 text-slate-400 hover:bg-slate-800 disabled:opacity-50"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mb-5 space-y-2 rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm">
+              <p>
+                <span className="text-slate-400">สิ่งของ: </span>
+                {selectedDispute.item_title || 'ไม่ระบุ'}
+              </p>
+
+              <p>
+                <span className="text-slate-400">ผู้ร้องเรียน: </span>
+                {selectedDispute.reporter_name || 'ไม่ระบุ'}
+              </p>
+
+              <p>
+                <span className="text-slate-400">ผู้เช่า: </span>
+                {selectedDispute.borrower_name || 'ไม่ระบุ'}
+              </p>
+
+              <p>
+                <span className="text-slate-400">ผู้ให้เช่า: </span>
+                {selectedDispute.lender_name || 'ไม่ระบุ'}
+              </p>
+
+              <p className="whitespace-pre-wrap break-words">
+                <span className="text-slate-400">ปัญหา: </span>
+                {selectedDispute.reason}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              disabled={decisionSubmitting}
+              onClick={() => {
+                setDecisionOpen(false);
+                void handleViewEvidence(selectedDispute.dispute_id);
+              }}
+              className="mb-5 flex w-full items-center justify-center gap-2 rounded-xl border border-blue-500/50 bg-blue-500/10 px-4 py-3 text-sm font-semibold text-blue-300 hover:bg-blue-500/20 disabled:opacity-50"
+            >
+              ตรวจสอบหลักฐานก่อนตัดสิน
+            </button>
+
+
+            <div className="space-y-3">
+              <label className="block text-sm font-semibold">
+                ผลการพิจารณา
+              </label>
+
+
+              <select
+                value={disputeDecision}
+                disabled={decisionSubmitting}
+                onChange={(e) =>
+                  setDisputeDecision(
+                    e.target.value as
+                    | 'uphold'
+                    | 'adjust'
+                    | 'waive'
+                    | 'general'
+                  )
+                }
+                className="w-full rounded-xl border border-slate-600 bg-slate-950 p-3 text-white"
+              >
+                <option value="general">
+                  พิจารณาเรื่องร้องเรียนทั่วไป
+                </option>
+                <option value="uphold">
+                  ยืนยันค่าปรับเดิม
+                </option>
+                <option value="adjust">
+                  ปรับลดค่าปรับ
+                </option>
+                <option value="waive">
+                  ยกเลิกค่าปรับ
+                </option>
+              </select>
+
+              {disputeDecision === 'general' && (
+                <p className="rounded-lg border border-blue-800/50 bg-blue-950/30 p-3 text-xs leading-relaxed text-blue-200">
+                  ใช้สำหรับข้อร้องเรียนทั่วไปที่ไม่เกี่ยวข้องกับค่าปรับ
+                  เช่น ปัญหาการยกเลิกคำขอเช่า การสื่อสารระหว่างคู่กรณี
+                  หรือปัญหาการส่งมอบสิ่งของ
+                  โดย Admin ต้องระบุผลการพิจารณาและเหตุผลให้ชัดเจน
+                </p>
+              )}
+
+
+
+              {disputeDecision === 'adjust' && (
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium">
+                    ค่าปรับใหม่ (บาท)
+                  </label>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={adjustedFine}
+                    disabled={decisionSubmitting}
+                    onChange={(e) => setAdjustedFine(e.target.value)}
+                    placeholder="เช่น 100"
+                    className="w-full rounded-xl border border-slate-600 bg-slate-950 p-3 text-white"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium">
+                  เหตุผลประกอบการตัดสิน
+                </label>
+                <textarea
+                  value={decisionReason}
+                  disabled={decisionSubmitting}
+                  onChange={(e) => setDecisionReason(e.target.value)}
+                  placeholder="อธิบายหลักฐานที่ตรวจสอบและเหตุผลการตัดสิน..."
+                  rows={5}
+                  maxLength={3000}
+                  className="w-full resize-y rounded-xl border border-slate-600 bg-slate-950 p-3 text-sm text-white"
+                />
+                <p className="text-xs text-slate-400">
+                  {decisionReason.trim().length}/3000 ตัวอักษร
+                  (ขั้นต่ำ 10 ตัวอักษร)
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                disabled={decisionSubmitting}
+                onClick={() => setDecisionOpen(false)}
+                className="w-full rounded-xl border border-slate-600 px-4 py-3 font-medium text-slate-200 disabled:opacity-50"
+              >
+                ยกเลิก
+              </button>
+
+              <button
+                type="button"
+                disabled={
+                  decisionSubmitting ||
+                  decisionReason.trim().length < 10 ||
+                  decisionReason.trim().length > 3000 ||
+                  (
+                    disputeDecision === 'adjust' &&
+                    (
+                      adjustedFine.trim() === '' ||
+                      !Number.isFinite(Number(adjustedFine)) ||
+                      Number(adjustedFine) <= 0
+                    )
+                  )
+                }
+                onClick={handleResolveDispute}
+                className="w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {decisionSubmitting
+                  ? 'กำลังบันทึกผล...'
+                  : 'ยืนยันผลการพิจารณา'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </AdminLayout>
   );
 };

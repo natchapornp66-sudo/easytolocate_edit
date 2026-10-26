@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Bell, CheckCircle, Clock, Star, AlertCircle, CreditCard } from 'lucide-react';
 import { Notification } from '@/types';
 import { getAuthSession } from '@/lib/auth';
+import { buildApiUrl } from '@/lib/api';
 
 const iconMap: Record<string, React.ElementType> = {
   rental_request: Bell,
@@ -14,9 +15,11 @@ const iconMap: Record<string, React.ElementType> = {
   review: Star,
   system: AlertCircle,
   payment: CreditCard,
+  dispute_resolved: CheckCircle,
 };
 
 const colorMap: Record<string, string> = {
+  dispute_resolved: 'bg-success/10 text-success',
   rental_request: 'bg-primary/10 text-primary',
   approved: 'bg-success/10 text-success',
   rejected: 'bg-destructive/10 text-destructive',
@@ -32,6 +35,8 @@ const Notifications = () => {
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -39,11 +44,10 @@ const Notifications = () => {
     const loadNotifications = async () => {
       try {
         setIsLoading(true);
+        setError('');
 
         const session = getAuthSession();
 
-        console.log('AUTH SESSION:', session);
-        console.log('NOTIFICATION USER ID:', session.userId);
 
         if (!session.userId) {
           if (isMounted) {
@@ -52,17 +56,12 @@ const Notifications = () => {
           return;
         }
 
-        if (!session.userId) {
-          if (isMounted) {
-            setNotifications([]);
-          }
-          return;
-        }
+
 
         const token = localStorage.getItem('token');
 
         const res = await fetch(
-          'http://localhost:5000/api/notifications',
+          buildApiUrl('/notifications'),
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -90,6 +89,7 @@ const Notifications = () => {
 
         if (isMounted) {
           setNotifications([]);
+          setError('ไม่สามารถโหลดการแจ้งเตือนได้ กรุณาลองใหม่');
         }
       } finally {
         if (isMounted) {
@@ -103,7 +103,7 @@ const Notifications = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [reload]);
 
   const handleMarkAsRead = async (id: string | number) => {
     try {
@@ -114,7 +114,7 @@ const Notifications = () => {
       }
 
       const res = await fetch(
-        `http://localhost:5000/api/notifications/${id}/read`,
+        buildApiUrl(`/notifications/${id}/read`),
         {
           method: 'PATCH',
           headers: {
@@ -134,10 +134,55 @@ const Notifications = () => {
             : n
         )
       );
+      return true;
     } catch (err) {
       console.error('Failed to mark notification as read:', err);
+      setError('ทำเครื่องหมายอ่านแล้วไม่สำเร็จ กรุณาลองใหม่');
+      return false;
     }
   };
+
+  const handleNotificationClick = async (notif: Notification) => {
+    const item = notif as Notification & {
+      notification_id?: string;
+      id?: string | number;
+      type?: string;
+      message?: string;
+      is_read?: boolean;
+      read?: boolean;
+    };
+
+    const notifId = item.notification_id || item.id;
+    const isRead = item.is_read ?? item.read ?? false;
+
+    // ทำเครื่องหมายอ่านแล้ว หากยังไม่อ่าน
+    if (notifId && !isRead) {
+      if (!await handleMarkAsRead(notifId)) return;
+    }
+
+    // การแจ้งเตือนประเภทอื่นยังคงทำงานแบบเดิม
+    if (item.type?.startsWith('verification_')) {
+      navigate('/profile');
+      return;
+    }
+    if (item.type !== 'dispute_resolved') {
+      return;
+    }
+
+    // อ่าน UUID ของข้อพิพาทจากข้อความแจ้งเตือน
+    // รูปแบบที่ Backend บันทึกไว้: รหัสข้อพิพาท: UUID
+    const match = String(item.message || '').match(
+      /รหัสข้อพิพาท:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
+    );
+
+    if (!match) {
+      console.warn('ไม่พบรหัสข้อพิพาทในแจ้งเตือน');
+      return;
+    }
+
+    navigate(`/disputes/${match[1]}`);
+  };
+
 
   return (
     <div className="min-h-screen bg-background pb-10">
@@ -151,6 +196,7 @@ const Notifications = () => {
       </div>
 
       <div className="-mt-3 rounded-t-3xl bg-background px-4 pt-4">
+        {error && <div role="alert" className="mb-3 rounded border border-red-200 bg-white p-3 text-sm text-red-600"><p>{error}</p><button type="button" className="mt-2 underline" onClick={() => setReload(n => n + 1)}>ลองใหม่</button></div>}
         {isLoading ? (
           <div className="flex min-h-[200px] items-center justify-center text-sm text-muted-foreground">
             กำลังโหลดการแจ้งเตือน...
@@ -164,10 +210,10 @@ const Notifications = () => {
               const notifId = notif.notification_id || notif.id;
 
               return (
-                <div
+                <button type="button"
                   key={notifId}
-                  onClick={() => !isRead && handleMarkAsRead(notifId)}
-                  className={`flex gap-3 rounded-xl border p-3 animate-fade-in transition-colors cursor-pointer ${isRead ? 'border-border bg-card' : 'border-primary/20 bg-primary/5'
+                  onClick={() => void handleNotificationClick(notif)}
+                  className={`flex w-full gap-3 rounded-xl border p-3 text-left animate-fade-in transition-colors cursor-pointer ${isRead ? 'border-border bg-card' : 'border-primary/20 bg-primary/5'
                     }`}
                 >
                   <div
@@ -195,11 +241,11 @@ const Notifications = () => {
                       </p>
                     )}
                   </div>
-                </div>
+                </button>
               );
             })}
 
-            {notifications.length === 0 && (
+            {!error && notifications.length === 0 && (
               <div className="flex flex-col items-center py-12 text-muted-foreground">
                 <Bell className="mb-2 h-8 w-8" />
                 <p className="text-sm">ไม่มีการแจ้งเตือนใหม่</p>

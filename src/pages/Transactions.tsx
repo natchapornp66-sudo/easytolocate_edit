@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { Transaction, TransactionStatus } from '@/types';
 import StatusBadge from '@/components/StatusBadge';
+import PrivateRentalPhoto from '@/components/PrivateRentalPhoto';
 import BottomNav from '@/components/BottomNav';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,11 +20,38 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import {
-  apiGet, apiPost, apiPatch, fetchAgreementByRentalId, signAgreement, uploadRentalPhotos, uploadRentalPaymentSlip, fetchRentalPayments, verifyRentalPayment, type RentalPayment,
+  API_BASE_URL,
+  buildApiUrl,
+  apiGet,
+  apiPost,
+  apiPatch,
+  fetchAgreementByRentalId,
+  signAgreement,
+  uploadRentalPhotos,
+  uploadRentalPaymentSlip,
+  fetchRentalPayments,
+  verifyRentalPayment,
+  type RentalPayment,
 } from '@/lib/api';
 
 type RentalView = 'borrowed' | 'lent';
 type RentalFilter = 'all' | TransactionStatus;
+
+type FineRefund = {
+  refund_id: string;
+  dispute_id: string;
+  rental_id: string;
+  original_fine_amount: number | string;
+  adjusted_fine_amount: number | string;
+  refund_amount: number | string;
+  status: 'pending' | 'completed' | 'cancelled';
+  created_at: string;
+  processed_at: string | null;
+  decision: string;
+  decision_reason: string | null;
+  item_title: string;
+};
+
 
 const mainTabs: { key: RentalView; label: string }[] = [
   { key: 'borrowed', label: 'ของที่ฉันเช่า' },
@@ -88,6 +116,107 @@ const ReviewPhotoPreview = ({
   );
 };
 
+const RentalPhotoPreview = ({
+  file,
+  onRemove,
+}: {
+  file: File;
+  onRemove: () => void;
+}) => {
+  const [previewUrl, setPreviewUrl] = useState('');
+
+  useEffect(() => {
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  return (
+    <div className="relative overflow-hidden rounded-xl border">
+      {previewUrl && (
+        <img
+          src={previewUrl}
+          alt="รูปสภาพสิ่งของ"
+          className="h-28 w-full object-cover"
+        />
+      )}
+
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label="ลบรูปภาพ"
+        className="absolute right-1 top-1 rounded-full bg-red-600 px-2 py-1 text-xs text-white"
+      >
+        ✕
+      </button>
+    </div>
+  );
+};
+
+const PrivateSlipImage = ({ paymentId }: { paymentId: string }) => {
+  const [imageUrl, setImageUrl] = useState('');
+
+  useEffect(() => {
+    let objectUrl = '';
+    const controller = new AbortController();
+
+    const loadImage = async () => {
+      try {
+        const token = localStorage.getItem('token');
+
+        if (!token) {
+          throw new Error('กรุณาเข้าสู่ระบบ');
+        }
+
+        const response = await fetch(
+          buildApiUrl(`/rental-payments/slip-file/${paymentId}`),
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            signal: controller.signal,
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error('ไม่สามารถโหลดสลิปได้');
+        }
+
+        const blob = await response.blob();
+
+        if (controller.signal.aborted) return;
+
+        objectUrl = URL.createObjectURL(blob);
+        setImageUrl(objectUrl);
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.error('Load private slip error:', error);
+        }
+      }
+    };
+
+    loadImage();
+
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [paymentId]);
+
+  if (!imageUrl) {
+    return <p className="text-sm text-muted-foreground">กำลังโหลดสลิปหรือไม่สามารถแสดงรูปได้</p>;
+  }
+
+  return (
+    <img
+      src={imageUrl}
+      alt="หลักฐานการชำระเงิน"
+      className="max-h-96 w-full rounded-lg object-contain"
+    />
+  );
+};
+
 const Transactions = () => {
   const navigate = useNavigate();
   const [activeView, setActiveView] = useState<RentalView>('borrowed');
@@ -99,6 +228,7 @@ const Transactions = () => {
   const [showContractDialog, setShowContractDialog] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [paymentRentalId, setPaymentRentalId] = useState<string | null>(null);
+  const [paymentType, setPaymentType] = useState<'rental' | 'fine'>('rental');
   const [paymentSlip, setPaymentSlip] = useState<File | null>(null);
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [showPaymentReviewDialog, setShowPaymentReviewDialog] = useState(false);
@@ -106,11 +236,20 @@ const Transactions = () => {
   const [paymentReviewLoading, setPaymentReviewLoading] = useState(false);
   const [paymentReviewSubmitting, setPaymentReviewSubmitting] = useState(false);
   const [paymentRejectionReason, setPaymentRejectionReason] = useState('');
+  const [fineRefunds, setFineRefunds] = useState<FineRefund[]>([]);
   type SlipStatus = 'submitted' | 'verified' | 'rejected' | null;
 
   const [slipStatuses, setSlipStatuses] = useState<
     Record<string, SlipStatus>
   >({});
+  const [fineSlipStatuses, setFineSlipStatuses] = useState<
+    Record<string, SlipStatus>
+  >({});
+  const [openDisputeRentalIds, setOpenDisputeRentalIds] =
+    useState<Set<string>>(new Set());
+
+  const [disputeStatusLoaded, setDisputeStatusLoaded] =
+    useState(false);
   const [handoverPhotos, setHandoverPhotos] = useState<
     Record<string, boolean>
   >({});
@@ -176,6 +315,7 @@ const Transactions = () => {
   const [photoUploadMode, setPhotoUploadMode] =
     useState<PhotoUploadMode>('afterUse');
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [photoSubmitting, setPhotoSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   type RentalInspection = {
     inspection_id: string;
@@ -207,10 +347,67 @@ const Transactions = () => {
         }
 
         const response = await apiGet<Transaction[]>(
-          `/api/rentals?view=${activeView}&userId=${session.userId}`
+          `/api/rentals?view=${activeView}`
         );
 
         const rentalList = Array.isArray(response) ? response : [];
+
+        try {
+          const refundResponse = await apiGet<{
+            success: boolean;
+            data: FineRefund[];
+          }>('/api/disputes/refunds');
+
+          if (isMounted) {
+            setFineRefunds(
+              refundResponse.success
+                ? refundResponse.data ?? []
+                : []
+            );
+          }
+        } catch (err) {
+          console.error('Load fine refunds error:', err);
+
+          if (isMounted) {
+            setFineRefunds([]);
+          }
+        }
+
+
+        // โหลดสถานะข้อพิพาทของรายการเช่าที่เกี่ยวข้อง
+        // หากโหลดไม่สำเร็จ จะยังไม่แสดงปุ่มชำระค่าปรับ
+        if (isMounted) {
+          setDisputeStatusLoaded(false);
+          setOpenDisputeRentalIds(new Set());
+        }
+
+        try {
+          const disputeResponse = await apiGet<{
+            success: boolean;
+            data: {
+              rental_id: string;
+              has_open_dispute: boolean;
+            }[];
+          }>('/api/disputes/eligible-rentals');
+
+          if (!disputeResponse.success) {
+            throw new Error('โหลดสถานะข้อพิพาทไม่สำเร็จ');
+          }
+
+          const openIds = new Set(
+            (disputeResponse.data ?? [])
+              .filter((item) => item.has_open_dispute)
+              .map((item) => item.rental_id)
+          );
+
+          if (isMounted) {
+            setOpenDisputeRentalIds(openIds);
+            setDisputeStatusLoaded(true);
+          }
+        } catch (err) {
+          console.error('Load dispute status error:', err);
+        }
+
 
         const handoverEntries = await Promise.all(
           rentalList.map(async (txn) => {
@@ -231,39 +428,68 @@ const Transactions = () => {
           })
         );
 
-        const slipEntries = await Promise.all(
+
+
+        const paymentStatusEntries = await Promise.all(
           rentalList.map(async (txn) => {
             try {
               const result = await fetchRentalPayments(txn.id);
+              const allPayments = result.data ?? [];
 
-              const payments = (result.data ?? [])
-                .filter((payment) => payment.payment_type === 'rental')
-                .sort(
-                  (a, b) =>
-                    new Date(b.created_at ?? 0).getTime() -
-                    new Date(a.created_at ?? 0).getTime()
-                );
+              const getLatestStatus = (
+                type: 'rental' | 'fine'
+              ): SlipStatus => {
+                const payments = allPayments
+                  .filter((payment) => payment.payment_type === type)
+                  .sort(
+                    (a, b) =>
+                      new Date(b.created_at ?? 0).getTime() -
+                      new Date(a.created_at ?? 0).getTime()
+                  );
 
-              const status = payments[0]?.status;
+                const status = payments[0]?.status;
 
-              const slipStatus: SlipStatus =
-                status === 'submitted' ||
+                return status === 'submitted' ||
                   status === 'verified' ||
                   status === 'rejected'
                   ? status
                   : null;
+              };
 
-              return [txn.id, slipStatus] as const;
+              return {
+                id: txn.id,
+                rentalStatus: getLatestStatus('rental'),
+                fineStatus: getLatestStatus('fine'),
+              };
             } catch (err) {
-              console.error(`Load slip status error: ${txn.id}`, err);
-              return [txn.id, null] as const;
+              console.error(
+                `Load payment status error: ${txn.id}`,
+                err
+              );
+
+              return {
+                id: txn.id,
+                rentalStatus: null as SlipStatus,
+                fineStatus: null as SlipStatus,
+              };
             }
           })
         );
 
+        const slipEntries = paymentStatusEntries.map(
+          ({ id, rentalStatus }) => [id, rentalStatus] as const
+        );
+
+        const fineSlipEntries = paymentStatusEntries.map(
+          ({ id, fineStatus }) => [id, fineStatus] as const
+        );
+
+
+
         if (isMounted) {
           setTransactions(rentalList);
           setSlipStatuses(Object.fromEntries(slipEntries));
+          setFineSlipStatuses(Object.fromEntries(fineSlipEntries));
           setHandoverPhotos(Object.fromEntries(handoverEntries));
         }
       } catch (err) {
@@ -328,7 +554,7 @@ const Transactions = () => {
     afterUse: [],
   };
 
-  const apiOrigin = 'http://localhost:5000';
+  const apiOrigin = API_BASE_URL;
 
   const toImageUrl = (url: string) => {
     if (!url) return '';
@@ -466,14 +692,49 @@ const Transactions = () => {
     setShowReviewDialog(true);
   };
 
-  const handlePhotoSelection = (event: ChangeEvent<HTMLInputElement>) => {
+
+  const handlePhotoSelection = (
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
     const files = Array.from(event.target.files ?? []);
-    const validFiles = files.filter((file) => /image\/(jpeg|png)/i.test(file.type));
-    setUploadedFiles(validFiles.slice(0, 5));
+
+    const validFiles = files.filter(
+      (file) =>
+        ['image/jpeg', 'image/png'].includes(file.type) &&
+        file.size <= 5 * 1024 * 1024
+    );
+
+    if (validFiles.length !== files.length) {
+      toast({
+        title: 'ไฟล์บางรูปไม่ถูกต้อง',
+        description: 'รองรับ JPG และ PNG ขนาดไม่เกิน 5 MB ต่อรูป',
+        variant: 'destructive',
+      });
+    }
+
+    setUploadedFiles((current) => {
+      const combined = [...current, ...validFiles];
+
+      if (combined.length > 5) {
+        toast({
+          title: 'เลือกรูปได้สูงสุด 5 รูป',
+          variant: 'destructive',
+        });
+      }
+
+      return combined.slice(0, 5);
+    });
+
+    event.target.value = '';
   };
 
-  const openPaymentDialog = (rentalId: string) => {
+
+  const openPaymentDialog = (
+    rentalId: string,
+    type: 'rental' | 'fine' = 'rental'
+  ) => {
     setPaymentRentalId(rentalId);
+    setPaymentType(type);
     setPaymentSlip(null);
     setShowPaymentDialog(true);
   };
@@ -496,11 +757,40 @@ const Transactions = () => {
     setPaymentSubmitting(true);
 
     try {
-      await uploadRentalPaymentSlip(paymentRentalId, paymentSlip);
-      setSlipStatuses((current) => ({
-        ...current,
-        [paymentRentalId]: 'submitted',
-      }));
+      if (paymentType === 'fine') {
+        const formData = new FormData();
+        formData.append('slip', paymentSlip);
+
+        const token = localStorage.getItem('token');
+
+        const response = await fetch(
+          buildApiUrl(`/rental-payments/${paymentRentalId}/fine-slip`),
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token || ''}`,
+            },
+            body: formData,
+          }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.error || 'อัปโหลดสลิปค่าปรับไม่สำเร็จ');
+        }
+        setFineSlipStatuses((current) => ({
+          ...current,
+          [paymentRentalId]: 'submitted',
+        }));
+      } else {
+        await uploadRentalPaymentSlip(paymentRentalId, paymentSlip);
+
+        setSlipStatuses((current) => ({
+          ...current,
+          [paymentRentalId]: 'submitted',
+        }));
+      }
 
       toast({
         title: 'อัปโหลดสลิปสำเร็จ',
@@ -549,7 +839,11 @@ const Transactions = () => {
   };
 
   const handlePhotoUploadSubmit = async () => {
-    if (!selectedId || uploadedFiles.length === 0) return;
+    if (!selectedId || uploadedFiles.length === 0 || photoSubmitting) {
+      return;
+    }
+
+    setPhotoSubmitting(true);
 
     try {
       const result = await uploadRentalPhotos(
@@ -611,6 +905,8 @@ const Transactions = () => {
         description: err?.message || 'กรุณาลองใหม่อีกครั้ง',
         variant: 'destructive',
       });
+    } finally {
+      setPhotoSubmitting(false);
     }
   };
 
@@ -705,29 +1001,61 @@ const Transactions = () => {
         paymentRejectionReason.trim()
       );
 
+
+      // ตรวจประเภทสลิปที่ผู้ให้เช่ากำลังดำเนินการ
+      const payment = reviewPayments.find(
+        (item) => item.payment_id === paymentId
+      );
+
+      // อัปเดตข้อมูลสลิปในหน้าต่างตรวจสอบ
       setReviewPayments((current) =>
-        current.map((payment) =>
-          payment.payment_id === paymentId
+        current.map((item) =>
+          item.payment_id === paymentId
             ? response.data
-            : payment
+            : item
         )
       );
-      if (paymentRentalId) {
-        setSlipStatuses((current) => ({
-          ...current,
-          [paymentRentalId]: action === 'verify' ? 'verified' : 'rejected',
-        }));
 
-        if (action === 'verify') {
-          setTransactions((current) =>
-            current.map((txn) =>
-              txn.id === paymentRentalId
-                ? { ...txn, payment_status: 'paid' }
-                : txn
-            )
-          );
+      if (paymentRentalId && payment) {
+        if (payment.payment_type === 'rental') {
+          // สลิปค่าเช่า: ใช้สถานะค่าเช่าเดิม
+          setSlipStatuses((current) => ({
+            ...current,
+            [paymentRentalId]:
+              action === 'verify' ? 'verified' : 'rejected',
+          }));
+
+          if (action === 'verify') {
+            setTransactions((current) =>
+              current.map((txn) =>
+                txn.id === paymentRentalId
+                  ? { ...txn, payment_status: 'paid' }
+                  : txn
+              )
+            );
+          }
+        }
+
+        if (payment.payment_type === 'fine') {
+          // สลิปค่าปรับ: แยกจากสถานะชำระค่าเช่า
+          setFineSlipStatuses((current) => ({
+            ...current,
+            [paymentRentalId]:
+              action === 'verify' ? 'verified' : 'rejected',
+          }));
+
+          if (action === 'verify') {
+            setTransactions((current) =>
+              current.map((txn) =>
+                txn.id === paymentRentalId
+                  ? { ...txn, status: 'completed' }
+                  : txn
+              )
+            );
+          }
         }
       }
+
 
       toast({
         title:
@@ -800,6 +1128,7 @@ const Transactions = () => {
       });
     }
   };
+
   const handleConfirmFine = async (txnId: string) => {
     const session = getAuthSession();
 
@@ -815,24 +1144,26 @@ const Transactions = () => {
     try {
       await apiPatch(`/rentals/${txnId}/fine/confirm`, {});
 
-      updateTransactionStatus(txnId, 'completed', {
+      // ยังไม่จบรายการ เพราะผู้เช่าต้องชำระค่าปรับก่อน
+      updateTransactionStatus(txnId, 'fine_pending', {
         fine_status: 'confirmed',
       });
 
       toast({
-        title: 'ยืนยันค่าปรับเรียบร้อย',
-        description: 'รายการเช่าเสร็จสิ้นแล้ว',
+        title: 'ยืนยันรับทราบค่าปรับเรียบร้อย',
+        description: 'ขั้นตอนต่อไปคือชำระค่าปรับและแนบสลิปให้ผู้ให้เช่าตรวจสอบ',
       });
     } catch (err) {
       console.error('Confirm fine error:', err);
 
       toast({
         title: 'ยืนยันค่าปรับไม่สำเร็จ',
-        description: 'กรุณาลองใหม่อีกครั้ง',
+        description: 'กรุณาตรวจสอบสถานะรายการและลองอีกครั้ง',
         variant: 'destructive',
       });
     }
   };
+
 
   const handleInspectionResult = async (
     decision: 'completed' | 'damaged'
@@ -962,10 +1293,10 @@ const Transactions = () => {
       return;
     }
 
-    if (!reviewComment.trim()) {
+    if (!reviewComment.trim() || reviewComment.trim().length > 3000) {
       toast({
         title: 'กรุณาเขียนความคิดเห็น',
-        description: 'กรุณากรอกความคิดเห็นก่อนส่งรีวิว',
+        description: 'กรุณากรอกความคิดเห็น 1–3000 ตัวอักษร',
         variant: 'destructive',
       });
       return;
@@ -984,7 +1315,7 @@ const Transactions = () => {
     setReviewSubmitting(true);
 
     try {
-      const response = await fetch('http://localhost:5000/api/reviews', {
+      const response = await fetch(buildApiUrl('/reviews'), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -1266,17 +1597,95 @@ const Transactions = () => {
                               </span>
 
                               <span className="font-semibold">
-                                {txn.fine_status === 'confirmed'
-                                  ? 'ผู้เช่ายืนยันแล้ว'
-                                  : txn.fine_status === 'pending_confirmation'
-                                    ? 'รอผู้เช่ายืนยัน'
-                                    : '-'}
+                                {fineSlipStatuses[txn.id] === 'verified'
+                                  ? 'ชำระค่าปรับสำเร็จ'
+                                  : fineSlipStatuses[txn.id] === 'submitted'
+                                    ? 'รอตรวจสอบสลิปค่าปรับ'
+                                    : fineSlipStatuses[txn.id] === 'rejected'
+                                      ? 'สลิปค่าปรับถูกปฏิเสธ'
+                                      : txn.fine_status === 'confirmed'
+                                        ? 'ผู้เช่ายืนยันแล้ว'
+                                        : txn.fine_status === 'pending_confirmation'
+                                          ? 'รอผู้เช่ายืนยัน'
+                                          : '-'}
                               </span>
                             </div>
 
                           </div>
                         </div>
                       )}
+
+                      {fineRefunds
+                        .filter((refund) => refund.rental_id === txn.id)
+                        .map((refund) => (
+                          <div
+                            key={refund.refund_id}
+                            className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-4"
+                          >
+                            <div className="flex items-center gap-2">
+                              <FileText className="h-4 w-4 text-blue-700" />
+                              <p className="text-sm font-semibold text-blue-900">
+                                ผลการพิจารณาค่าปรับและการคืนเงิน
+                              </p>
+                            </div>
+
+                            <div className="mt-3 space-y-2 text-sm">
+                              <div className="flex justify-between gap-3">
+                                <span>ค่าปรับเดิม</span>
+                                <span>
+                                  {formatPrice(Number(refund.original_fine_amount))}
+                                </span>
+                              </div>
+
+                              <div className="flex justify-between gap-3">
+                                <span>ค่าปรับหลังพิจารณา</span>
+                                <span>
+                                  {formatPrice(Number(refund.adjusted_fine_amount))}
+                                </span>
+                              </div>
+
+                              <div className="flex justify-between gap-3 border-t border-blue-200 pt-2">
+                                <span className="font-semibold">
+                                  ยอดที่ต้องคืน
+                                </span>
+                                <span className="font-bold text-blue-800">
+                                  {formatPrice(Number(refund.refund_amount))}
+                                </span>
+                              </div>
+
+                              <div className="rounded-lg bg-white p-2">
+                                <p className="font-medium">
+                                  สถานะ:
+                                  {' '}
+                                  {refund.status === 'pending'
+                                    ? 'รอดำเนินการคืนเงิน'
+                                    : refund.status === 'completed'
+                                      ? 'ดำเนินการคืนเงินแล้ว'
+                                      : 'ยกเลิกการคืนเงิน'}
+                                </p>
+                              </div>
+
+                              {refund.decision_reason && (
+                                <p className="text-xs text-slate-600">
+                                  เหตุผลคำตัดสิน: {refund.decision_reason}
+                                </p>
+                              )}
+
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="w-full"
+                                onClick={() =>
+                                  navigate(`/disputes/${refund.dispute_id}`)
+                                }
+                              >
+                                ดูรายละเอียดข้อพิพาท
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+
 
                       {isBorrowerView && (
                         <div className="mt-4 space-y-2">
@@ -1388,14 +1797,84 @@ const Transactions = () => {
 
                               </div>
 
-                              <Button
-                                size="sm"
-                                className="mt-3 w-full"
-                                onClick={() => handleConfirmFine(txn.id)}
-                              >
-                                <CheckCircle2 className="mr-2 h-4 w-4" />
-                                ยืนยันค่าปรับ {formatPrice(txn.fine_amount)}
-                              </Button>
+                              {openDisputeRentalIds.has(txn.id) && (
+                                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                                  <p className="text-sm font-semibold text-amber-800">
+                                    รายการนี้อยู่ระหว่างการพิจารณาข้อพิพาท
+                                  </p>
+
+                                  <p className="mt-1 text-xs text-amber-700">
+                                    ระบบพักการชำระค่าปรับชั่วคราว
+                                    กรุณารอผลการพิจารณาจากผู้ดูแลระบบ
+                                  </p>
+
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="mt-3 w-full"
+                                    onClick={() => navigate('/disputes')}
+                                  >
+                                    ดูรายการข้อพิพาท
+                                  </Button>
+                                </div>
+                              )}
+
+
+
+                              {txn.fine_status === 'pending_confirmation' && (
+                                <Button
+                                  size="sm"
+                                  className="mt-3 w-full"
+                                  onClick={() => handleConfirmFine(txn.id)}
+                                >
+                                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                                  ยืนยันค่าปรับ {formatPrice(txn.fine_amount)}
+                                </Button>
+                              )}
+
+                              {txn.fine_status === 'confirmed' && (
+                                <p className="mt-3 rounded-lg bg-blue-50 p-3 text-sm font-medium text-blue-700">
+                                  ยืนยันรับทราบค่าปรับแล้ว กรุณาดำเนินการชำระเงิน
+                                </p>
+                              )}
+
+                              {txn.fine_status === 'confirmed' &&
+                                Number(txn.fine_amount ?? 0) > 0 &&
+                                disputeStatusLoaded &&
+                                !openDisputeRentalIds.has(txn.id) &&
+                                fineSlipStatuses[txn.id] !== 'submitted' &&
+                                fineSlipStatuses[txn.id] !== 'verified' && (
+
+                                  <Button
+                                    size="sm"
+                                    className="mt-2 w-full"
+                                    onClick={() => openPaymentDialog(txn.id, 'fine')}
+                                  >
+                                    ชำระค่าปรับ / แนบสลิป {formatPrice(txn.fine_amount)}
+                                  </Button>
+                                )}
+                              {txn.fine_status === 'confirmed' &&
+                                fineSlipStatuses[txn.id] === 'submitted' && (
+                                  <p className="mt-2 text-sm font-medium text-amber-600">
+                                    ส่งสลิปค่าปรับแล้ว กำลังรอผู้ให้เช่าตรวจสอบ
+                                  </p>
+                                )}
+
+                              {txn.fine_status === 'confirmed' &&
+                                fineSlipStatuses[txn.id] === 'verified' && (
+                                  <p className="mt-2 text-sm font-medium text-green-600">
+                                    ชำระค่าปรับสำเร็จแล้ว
+                                  </p>
+                                )}
+
+                              {txn.fine_status === 'confirmed' &&
+                                fineSlipStatuses[txn.id] === 'rejected' && (
+                                  <p className="mt-2 text-sm font-medium text-red-600">
+                                    สลิปค่าปรับถูกปฏิเสธ กรุณาแนบสลิปใหม่
+                                  </p>
+                                )}
+
 
                             </div>
                           )}
@@ -1419,6 +1898,7 @@ const Transactions = () => {
                               setReviewRental(txn);
                               setReviewRating(0);
                               setReviewComment('');
+                              setReviewPhotos([]);
                               setShowReviewDialog(true);
                             }}
                           >
@@ -1430,16 +1910,22 @@ const Transactions = () => {
 
                       {!isBorrowerView && (
                         <div className="mt-4 space-y-2">
-                          {(txn.status === 'approved' || txn.status === 'borrowing') && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="w-full"
-                              onClick={() => openPaymentReviewDialog(txn.id)}
-                            >
-                              ตรวจสอบการชำระเงิน
-                            </Button>
-                          )}
+                          {(
+                            txn.status === 'approved' ||
+                            txn.status === 'borrowing' ||
+                            txn.status === 'fine_pending'
+                          ) && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="w-full"
+                                onClick={() => openPaymentReviewDialog(txn.id)}
+                              >
+                                {txn.status === 'fine_pending'
+                                  ? 'ตรวจสอบการชำระค่าปรับ'
+                                  : 'ตรวจสอบการชำระเงิน'}
+                              </Button>
+                            )}
                           {txn.status === 'approved' &&
                             txn.payment_status === 'paid' && (
                               <Button
@@ -1553,10 +2039,14 @@ const Transactions = () => {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg font-bold text-blue-950">
               <FileText className="h-5 w-5 text-blue-700" />
-              อัปโหลดหลักฐานการชำระเงิน
+              {paymentType === 'fine'
+                ? 'อัปโหลดหลักฐานการชำระค่าปรับ'
+                : 'อัปโหลดหลักฐานการชำระเงิน'}
             </DialogTitle>
             <DialogDescription>
-              แนบสลิปโอนเงินค่าเช่าเพื่อส่งให้ผู้ให้เช่าตรวจสอบ
+              {paymentType === 'fine'
+                ? 'แนบสลิปโอนเงินค่าปรับ เพื่อส่งให้ผู้ให้เช่าตรวจสอบ'
+                : 'แนบสลิปโอนเงินค่าเช่าเพื่อส่งให้ผู้ให้เช่าตรวจสอบ'}
             </DialogDescription>
           </DialogHeader>
 
@@ -1593,9 +2083,18 @@ const Transactions = () => {
       </Dialog>
 
       <Dialog open={showContractDialog} onOpenChange={setShowContractDialog}>
-        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+
+        <DialogContent
+          style={{
+            width: 'calc(100vw - 32px)',
+            maxWidth: '850px',
+            maxHeight: '90dvh',
+          }}
+          className="overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-8"
+        >
+
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base font-display">
+            <DialogTitle className="flex items-center gap-3 text-lg font-display sm:text-xl">
               <FileText className="h-5 w-5 text-primary" />
               สัญญาเช่าสิ่งของอิเล็กทรอนิกส์ (e-Contract)
             </DialogTitle>
@@ -1787,6 +2286,11 @@ const Transactions = () => {
                   key={payment.payment_id}
                   className="space-y-3 rounded-xl border p-3"
                 >
+                  <p className="text-sm font-semibold text-blue-800">
+                    {payment.payment_type === 'fine'
+                      ? 'สลิปชำระค่าปรับ'
+                      : 'สลิปชำระค่าเช่า'}
+                  </p>
                   <p className="text-sm">
                     ยอดชำระ: ฿{Number(payment.amount).toLocaleString()}
                   </p>
@@ -1802,17 +2306,7 @@ const Transactions = () => {
                   </p>
 
                   {payment.slip_url && (
-                    <a
-                      href={`http://localhost:5000${payment.slip_url}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <img
-                        src={`http://localhost:5000${payment.slip_url}`}
-                        alt="สลิปการชำระเงิน"
-                        className="max-h-72 w-full rounded-lg object-contain"
-                      />
-                    </a>
+                    <PrivateSlipImage paymentId={payment.payment_id} />
                   )}
 
                   {payment.status === 'submitted' && (
@@ -1864,7 +2358,15 @@ const Transactions = () => {
       </Dialog>
 
       <Dialog open={showReturnDialog} onOpenChange={setShowReturnDialog}>
-        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+
+        <DialogContent
+          style={{
+            width: 'calc(100vw - 32px)',
+            maxWidth: '650px',
+            maxHeight: '85dvh',
+          }}
+          className="overflow-y-auto rounded-2xl p-5 sm:p-8"
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base font-display">
               <Camera className="h-5 w-5 text-primary" />
@@ -1911,31 +2413,52 @@ const Transactions = () => {
               onChange={handlePhotoSelection}
             />
 
+
             {uploadedFiles.length > 0 && (
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {uploadedFiles.map((file, index) => (
-                  <div key={`upload-file-${index}-${file.name}`} className="overflow-hidden rounded-lg border border-border bg-muted">
-                    <img src={URL.createObjectURL(file)} alt={`upload-${index}`} className="h-20 w-full object-cover" />
-                  </div>
+                  <RentalPhotoPreview
+                    key={`${file.name}-${file.lastModified}-${index}`}
+                    file={file}
+                    onRemove={() => {
+                      setUploadedFiles((current) =>
+                        current.filter((_, i) => i !== index)
+                      );
+                    }}
+                  />
                 ))}
               </div>
             )}
+
           </div>
 
           <DialogFooter className="sm:flex-col">
-            <Button className="w-full" onClick={handlePhotoUploadSubmit} disabled={uploadedFiles.length === 0}>
-              {photoUploadMode === 'lenderBefore'
-                ? 'บันทึกภาพก่อนส่งมอบ'
-                : photoUploadMode === 'beforeUse'
-                  ? 'บันทึกภาพก่อนใช้งาน'
-                  : 'ยืนยันการคืน'}
+            <Button
+              className="w-full"
+              onClick={handlePhotoUploadSubmit}
+              disabled={uploadedFiles.length === 0 || photoSubmitting}
+            >
+              {photoSubmitting
+                ? 'กำลังบันทึกภาพ...'
+                : photoUploadMode === 'lenderBefore'
+                  ? 'บันทึกภาพก่อนส่งมอบ'
+                  : photoUploadMode === 'beforeUse'
+                    ? 'บันทึกภาพก่อนใช้งาน'
+                    : 'ยืนยันการคืน'}
             </Button>
-            <Button variant="outline" className="w-full" onClick={() => setShowReturnDialog(false)}>
+
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => setShowReturnDialog(false)}
+              disabled={photoSubmitting}
+            >
               ปิด
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
 
       <Dialog open={showInspectionDialog} onOpenChange={setShowInspectionDialog}>
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
@@ -1976,18 +2499,12 @@ const Transactions = () => {
                     {photoSets[key].length > 0 ? (
                       <div className="grid grid-cols-2 gap-2">
                         {photoSets[key].map((url, index) => (
-                          <a
+                          <PrivateRentalPhoto
                             key={`${key}-${index}`}
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            <img
-                              src={url}
-                              alt={`${label} รูปที่ ${index + 1}`}
-                              className="h-28 w-full rounded-lg object-cover"
-                            />
-                          </a>
+                            rentalId={selectedId!}
+                            url={url}
+                            alt={`${label} รูปที่ ${index + 1}`}
+                          />
                         ))}
                       </div>
                     ) : (
@@ -2047,7 +2564,25 @@ const Transactions = () => {
         </DialogContent>
       </Dialog>
       <Dialog open={showReviewDialog} onOpenChange={setShowReviewDialog}>
-        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+
+
+        <DialogContent
+          style={{
+            width: 'calc(100vw - 24px)',
+            maxWidth: '700px',
+            maxHeight: '85dvh',
+            boxSizing: 'border-box',
+          }}
+          className="
+    min-w-0
+    overflow-x-hidden
+    overflow-y-auto
+    rounded-2xl
+    p-4
+    sm:p-8
+  "
+        >
+
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Star className="h-5 w-5 text-primary" />
@@ -2110,9 +2645,10 @@ const Transactions = () => {
 
                 <textarea
                   value={reviewComment}
+                  maxLength={3000}
                   onChange={(e) => setReviewComment(e.target.value)}
                   placeholder="เขียนความคิดเห็นเกี่ยวกับการเช่า..."
-                  className="mt-2 min-h-24 w-full rounded-xl border border-border bg-background p-3 text-sm outline-none"
+                  className="mt-2 min-h-24 w-full min-w-0 rounded-xl border border-border bg-background p-3 text-sm outline-none"
                 />
               </div>
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Package, Plus, Pencil, Trash2, Power, } from 'lucide-react';
 import BottomNav from '@/components/BottomNav';
+import { API_BASE_URL } from '@/lib/api';
 
 interface MyItem {
     item_id: string;
@@ -12,7 +13,7 @@ interface MyItem {
     category_name?: string;
 }
 
-const API_URL = 'http://localhost:5000';
+const API_URL = API_BASE_URL;
 
 const MyItems = () => {
     const navigate = useNavigate();
@@ -359,7 +360,7 @@ const MyItems = () => {
                                                     onClick={() =>
                                                         handleToggleStatus(item.item_id, item.status)
                                                     }
-                                                    disabled={updatingStatusId === item.item_id}
+                                                    disabled={updatingStatusId === item.item_id || item.status === 'hidden'}
                                                     className={`col-span-2 inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 xl:col-span-1 ${item.status === 'active'
                                                         ? 'border-orange-200 text-orange-600 hover:bg-orange-50'
                                                         : 'border-green-200 text-green-600 hover:bg-green-50'
@@ -368,6 +369,8 @@ const MyItems = () => {
                                                     <Power className="h-3.5 w-3.5" />
                                                     {updatingStatusId === item.item_id
                                                         ? 'กำลังอัปเดต...'
+                                                        : item.status === 'hidden'
+                                                            ? 'ถูกซ่อนโดยผู้ดูแล'
                                                         : item.status === 'active'
                                                             ? 'ปิดให้เช่า'
                                                             : 'เปิดให้เช่า'}

@@ -35,6 +35,13 @@ const ChatRoom = () => {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [sendError, setSendError] = useState('');
+  const [sending, setSending] = useState(false);
+  const [reload, setReload] = useState(0);
+  const sendingRef = useRef(false);
+  const roomRef = useRef(id);
+  roomRef.current = id;
 
   // ==============================
   // ดึง User ที่ Login จริง
@@ -66,141 +73,54 @@ const ChatRoom = () => {
   // โหลดข้อมูลห้อง + ข้อความ
   // ==============================
   useEffect(() => {
-    let isMounted = true;
-
-    const fetchChatAndMessages = async () => {
-      if (!id || !currentUserId) {
-        return;
-      }
-
+    let active = true, fetching = false;
+    setIsLoading(true); setLoadError(''); setSendError('');
+    setMessages([]); setChatInfo(null); setMessage('');
+    setBankAccount(null); setShowBankAccount(false); setBankError(''); setBankLoading(false);
+    const load = async () => {
+      if (!id || !currentUserId || fetching) return;
+      fetching = true;
       try {
-        setIsLoading(true);
-
-        // ------------------------------
-        // 1. ข้อมูลคู่สนทนา
-        // ------------------------------
-        const chatData = await apiGet<any>(
-          `/api/chats/${id}`
-        );
-
-        if (isMounted) {
-          setChatInfo(chatData.data || chatData);
+        const info = await apiGet<any>(`/chats/${id}`);
+        if (!active) return;
+        const response = await apiGet<any>(`/chats/${id}/messages`);
+        if (active) {
+          setChatInfo(info.data || info);
+          const next = Array.isArray(response) ? response : response.data || [];
+          setMessages(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+          setLoadError('');
         }
-
-        // ------------------------------
-        // 2. ข้อความในห้อง
-        // ------------------------------
-        const msgData = await apiGet<any>(
-          `/api/chats/${id}/messages?userId=${currentUserId}`
-        );
-
-        const actualMessages = Array.isArray(msgData)
-          ? msgData
-          : Array.isArray(msgData?.data)
-            ? msgData.data
-            : [];
-
-        if (isMounted) {
-          setMessages(actualMessages);
-        }
-
-      } catch (err) {
-        console.error(
-          'Failed to load chat room data:',
-          err
-        );
+      } catch {
+        if (active) setLoadError('ไม่สามารถโหลดข้อความได้ กรุณาลองใหม่');
       } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
+        fetching = false;
+        if (active) setIsLoading(false);
       }
     };
+    void load();
+    const timer = window.setInterval(() => { if (document.visibilityState !== 'hidden') void load(); }, 3000);
+    window.addEventListener('focus', load);
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', load); };
+  }, [id, currentUserId, reload]);
 
-    fetchChatAndMessages();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [id, currentUserId]);
-
-  // ==============================
-  // ส่งข้อความ
-  // ==============================
   const handleSend = async () => {
-    if (
-      !message.trim() ||
-      !id ||
-      !currentUserId
-    ) {
-      return;
-    }
-
-    const textToSend = message.trim();
-
-    setMessage('');
-
-    // ข้อความชั่วคราว
-    const tempId = `temp-${Date.now()}`;
-
-    const tempMsg = {
-      id: tempId,
-      message_id: tempId,
-      chat_id: id,
-      sender_id: currentUserId,
-      receiver_id: id,
-      message: textToSend,
-      created_at: new Date().toISOString(),
-    };
-
-    // แสดงทันทีบนหน้าจอ
-    setMessages((prev) => [
-      ...prev,
-      tempMsg,
-    ]);
-
+    if (!message.trim() || message.trim().length > 3000 || !id || !currentUserId || !chatInfo || sendingRef.current) return;
+    const text = message.trim();
+    sendingRef.current = true; setSending(true); setSendError('');
     try {
-      const response = await apiPost<any>(
-        `/api/chats/${id}/messages`,
-        {
-          sender_id: currentUserId,
-          message: textToSend,
-        }
-      );
-
-      const savedMessage =
-        response.data || response;
-
-      // เปลี่ยนข้อความชั่วคราว
-      // เป็นข้อมูลจริงจาก DB
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.message_id === tempId ||
-            msg.id === tempId
-            ? savedMessage
-            : msg
-        )
-      );
-
-    } catch (err) {
-      console.error(
-        'Failed to send message:',
-        err
-      );
-
-      // ถ้าส่งไม่สำเร็จ ลบข้อความชั่วคราว
-      setMessages((prev) =>
-        prev.filter(
-          (msg) =>
-            msg.message_id !== tempId &&
-            msg.id !== tempId
-        )
-      );
+      const response = await apiPost<any>(`/chats/${id}/messages`, { message: text });
+      if (roomRef.current !== id) return;
+      const saved = response.data || response;
+      setMessages(previous => previous.some(msg => msg.message_id === saved.message_id) ? previous : [...previous, saved]);
+      setMessage(current => current.trim() === text ? '' : current);
+    } catch {
+      if (roomRef.current === id) setSendError('ส่งข้อความไม่สำเร็จ ข้อความยังอยู่ในช่องพิมพ์ กรุณาลองส่งใหม่');
+    } finally {
+      sendingRef.current = false;
+      setSending(false);
     }
   };
 
-  // ==============================
-  // ข้อมูลคู่สนทนา
-  // ==============================
   const otherUserName =
     chatInfo?.other_user_name ||
     chatInfo?.user_name ||
@@ -239,15 +159,15 @@ const ChatRoom = () => {
         );
       }
 
-      setBankAccount(response.data);
+      if (roomRef.current === id) setBankAccount(response.data);
     } catch (error) {
-      setBankError(
+      if (roomRef.current === id) setBankError(
         error instanceof Error
           ? error.message
           : 'ไม่สามารถโหลดบัญชีธนาคารได้'
       );
     } finally {
-      setBankLoading(false);
+      if (roomRef.current === id) setBankLoading(false);
     }
   };
 
@@ -369,13 +289,14 @@ const ChatRoom = () => {
       </div>
 
       {/* Messages */}
+      {loadError && <div role="alert" className="px-4 py-2 text-sm text-red-600">{loadError} <button type="button" onClick={() => setReload(n => n + 1)} className="underline">ลองใหม่</button></div>}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
 
         {isLoading ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             กำลังโหลดข้อความ...
           </div>
-        ) : messages.length === 0 ? (
+        ) : messages.length === 0 && !loadError ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             ยังไม่มีข้อความ เริ่มการสนทนาได้เลย
           </div>
@@ -449,11 +370,15 @@ const ChatRoom = () => {
 
       {/* Input */}
       <div className="border-t border-border bg-card px-4 py-3 safe-bottom">
+        {sendError && <p role="alert" className="mb-2 text-sm text-red-600">{sendError}</p>}
 
         <div className="flex items-center gap-2">
 
           <button
             type="button"
+            disabled
+            title="ยังไม่รองรับการส่งรูปในแชต"
+            aria-label="ยังไม่รองรับการส่งรูปในแชต"
             className="text-muted-foreground hover:text-foreground"
           >
             <ImageIcon className="h-5 w-5" />
@@ -461,11 +386,14 @@ const ChatRoom = () => {
 
           <Input
             value={message}
+            maxLength={3000}
+            disabled={sending || !chatInfo}
             onChange={(e) =>
               setMessage(e.target.value)
             }
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                e.preventDefault();
                 handleSend();
               }
             }}
@@ -476,7 +404,9 @@ const ChatRoom = () => {
           <button
             type="button"
             onClick={handleSend}
+            aria-label="ส่งข้อความ"
             disabled={
+              sending || !chatInfo ||
               !message.trim() ||
               !currentUserId
             }

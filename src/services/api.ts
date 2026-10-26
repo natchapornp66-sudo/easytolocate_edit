@@ -1,7 +1,8 @@
 import { Item, Rental, Agreement, ChatMessage, Notification, UserVerification } from '../types';
+import { apiGet, apiRequest, API_BASE_URL as API_ORIGIN } from '@/lib/api';
 
 // URL ของ Express Backend Server
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = `${API_ORIGIN}/api`;
 
 // --- Items & Rentals ---
 export const fetchItems = async (): Promise<Item[]> => {
@@ -16,22 +17,13 @@ export const fetchRentals = async (): Promise<Rental[]> => {
 
 // --- KYC / Verifications ---
 export const fetchUserVerification = async (userId: string): Promise<{ success: boolean; data: UserVerification | null }> => {
-    const res = await fetch(`${API_BASE_URL}/verifications/user/${userId}`);
-    return res.json();
+    return apiGet(`/verifications/user/${encodeURIComponent(userId)}`);
 };
 
-export const submitVerification = async (payload: {
-    user_id: string;
-    id_card_number: string;
-    id_card_image_url: string;
-    selfie_image_url: string;
-}) => {
-    const res = await fetch(`${API_BASE_URL}/verifications`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+export const submitVerification = (payload: FormData) => {
+    return apiRequest<{ success: boolean; data: UserVerification }>('/verifications', {
+        method: 'POST', body: payload,
     });
-    return res.json();
 };
 
 // --- E-Agreements ---

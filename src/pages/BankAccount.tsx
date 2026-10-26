@@ -1,3 +1,4 @@
+import { API_BASE_URL } from '@/lib/api';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from '@/hooks/use-toast';
@@ -12,7 +13,7 @@ type BankAccountData = {
     account_number: string;
 };
 
-const API_URL = 'http://localhost:5000';
+const API_URL = API_BASE_URL;
 
 export default function BankAccount() {
     const navigate = useNavigate();

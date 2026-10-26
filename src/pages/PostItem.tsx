@@ -8,6 +8,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import BottomNav from '@/components/BottomNav';
 import { toast } from '@/hooks/use-toast';
 import { getAuthSession } from '@/lib/auth';
+import { buildApiUrl } from '@/lib/api';
+
+const ItemImagePreview = ({ file, index }: { file: File; index: number }) => {
+  const [url, setUrl] = useState('');
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(file); setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+  return <img src={url} alt={`รูปสินค้า ${index + 1}`} className="h-full w-full object-cover" />;
+};
 
 const PostItem = () => {
   const navigate = useNavigate();
@@ -17,6 +27,10 @@ const PostItem = () => {
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
+    if (files.some(file => !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type) || file.size > 5 * 1024 * 1024) || selectedImages.length + files.length > 5) {
+      toast({ title: 'รูปภาพไม่ถูกต้อง', description: 'เลือกได้สูงสุด 5 รูป รองรับ JPG, PNG, WEBP และ GIF ขนาดไม่เกิน 5 MB ต่อรูป', variant: 'destructive' });
+      e.target.value = ''; return;
+    }
 
     setSelectedImages((prev) => [...prev, ...files].slice(0, 5));
 
@@ -25,11 +39,14 @@ const PostItem = () => {
   const [categoryOptions, setCategoryOptions] = useState<
     { category_id: number; category_name: string }[]
   >([]);
+  const [categoryError, setCategoryError] = useState('');
+  const [categoryReload, setCategoryReload] = useState(0);
 
   useEffect(() => {
     const loadCategories = async () => {
+      setCategoryError('');
       try {
-        const response = await fetch('http://localhost:5000/api/categories');
+        const response = await fetch(buildApiUrl('/categories'));
 
         if (!response.ok) {
           throw new Error('โหลดหมวดหมู่ไม่สำเร็จ');
@@ -42,11 +59,12 @@ const PostItem = () => {
         );
       } catch (error) {
         console.error('Load categories error:', error);
+        setCategoryError('โหลดหมวดหมู่ไม่สำเร็จ กรุณาลองใหม่');
       }
     };
 
     loadCategories();
-  }, []);
+  }, [categoryReload]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [form, setForm] = useState({
     title: '',
@@ -90,6 +108,16 @@ const PostItem = () => {
       navigate('/login');
       return;
     }
+    const token = localStorage.getItem('token');
+
+    if (!token) {
+      toast({
+        title: 'กรุณาเข้าสู่ระบบใหม่',
+        description: 'ไม่พบ Token สำหรับยืนยันตัวตน',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     const price = Number(form.rental_price_per_day);
 
@@ -116,9 +144,12 @@ const PostItem = () => {
         });
 
         const uploadResponse = await fetch(
-          'http://localhost:5000/api/upload/item-images',
+          buildApiUrl('/upload/item-images'),
           {
             method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
             body: formData,
           }
         );
@@ -131,13 +162,14 @@ const PostItem = () => {
 
         uploadedImages = uploadData.images;
       }
-      const response = await fetch('http://localhost:5000/api/items', {
+      const response = await fetch(buildApiUrl('/items'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          lender_id: session.userId,
+
           category_id: Number(form.category),
           title: form.title,
           description: form.description,
@@ -243,7 +275,7 @@ const PostItem = () => {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/jpeg,image/png,image/webp,image/gif"
                 multiple
                 className="hidden"
                 onChange={handleImageChange}
@@ -255,14 +287,11 @@ const PostItem = () => {
                     key={`${file.name}-${index}`}
                     className="relative h-28 w-28 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
                   >
-                    <img
-                      src={URL.createObjectURL(file)}
-                      alt={`รูปสินค้า ${index + 1}`}
-                      className="h-full w-full object-cover"
-                    />
+                    <ItemImagePreview file={file} index={index} />
 
                     <button
                       type="button"
+                      aria-label={`ลบรูปสินค้า ${index + 1}`}
                       onClick={() =>
                         setSelectedImages((prev) =>
                           prev.filter((_, i) => i !== index)
@@ -309,6 +338,7 @@ const PostItem = () => {
 
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-foreground">หมวดหมู่</label>
+              {categoryError && <p role="alert" className="text-sm text-red-600">{categoryError} <button type="button" onClick={() => setCategoryReload(n => n + 1)} className="underline">ลองใหม่</button></p>}
               <Select
                 value={form.category}
                 onValueChange={(value) => update('category', value)}
@@ -394,6 +424,9 @@ const PostItem = () => {
                 type="number"
                 placeholder="0"
                 value={form.rental_price_per_day}
+                min="0.01"
+                max="99999999.99"
+                step="0.01"
                 onChange={(e) => update('rental_price_per_day', e.target.value)}
                 className="min-h-12 rounded-xl border-slate-200 bg-slate-50 px-4 text-sm focus-visible:ring-blue-500"
                 required

@@ -46,6 +46,10 @@ const statusConfig: Record<
     label: 'ปฏิเสธ',
     className: 'bg-muted text-muted-foreground border-border',
   },
+  inspection_pending: {
+    label: 'กำลังตรวจสภาพ',
+    className: 'bg-blue-100 text-blue-700 border-blue-200',
+  },
 };
 
 const StatusBadge = ({ status }: StatusBadgeProps) => {

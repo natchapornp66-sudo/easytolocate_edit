@@ -54,8 +54,11 @@ export default function RentalProgressStepper({
     const hasSubmittedSlip =
         slipStatus === "submitted" || slipStatus === "verified" || isPaid;
     const hasFine = Number(fineAmount ?? 0) > 0;
-    const finePaid = fineStatus === "paid";
     const isCompleted = status === "completed";
+    const finePaid =
+        fineSlipStatus === "verified" ||
+        (isCompleted && fineStatus === "confirmed");
+
 
 
     const steps: Step[] = [
@@ -129,9 +132,14 @@ export default function RentalProgressStepper({
             fineStatus !== "pending_confirmation" &&
             fineStatus !== "rejected",
 
-        finePayment: hasFine && finePaid,
-        fineSlip: hasFine && finePaid,
-        completed: isCompleted,
+        finePayment:
+            hasFine && (fineSlipStatus === "submitted" || finePaid),
+
+        fineSlip:
+            hasFine && finePaid,
+
+        completed:
+            isCompleted && (!hasFine || finePaid),
     };
 
     // ป้องกันการแสดงขั้นตอนหลังการชำระเงินว่าเสร็จแล้ว
@@ -168,7 +176,7 @@ export default function RentalProgressStepper({
                 : "รอชำระเงิน";
 
     const fineMessage = finePaid
-        ? "ผู้ให้เช่ายืนยันค่าปรับแล้ว"
+        ? "ชำระค่าปรับและตรวจสอบสลิปสำเร็จ"
         : fineSlipStatus === "submitted"
             ? "รอตรวจสอบสลิปค่าปรับ"
             : fineSlipStatus === "rejected"

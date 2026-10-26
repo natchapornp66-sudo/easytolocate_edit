@@ -1,7 +1,7 @@
+import { buildApiUrl } from '@/lib/api';
 import { useEffect, useState } from 'react';
 import { Search, Bell, MapPin, SlidersHorizontal } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { CategoryName } from '@/types';
 import BottomNav from '@/components/BottomNav';
 import ItemCard from '@/components/ItemCard';
 import CategoryFilter from '@/components/CategoryFilter';
@@ -46,7 +46,7 @@ const calculateDistanceKm = (
 const Home = () => {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
-  const [category, setCategory] = useState<CategoryName>('ทั้งหมด');
+  const [category, setCategory] = useState('ทั้งหมด');
   const [maxDistance, setMaxDistance] = useState(Infinity);
   const [showDistanceFilter, setShowDistanceFilter] = useState(false);
   const [items, setItems] = useState<any[]>([]);
@@ -91,7 +91,8 @@ const Home = () => {
 
     const loadItems = async () => {
       try {
-        const res = await fetch('/api/items');
+        const res = await fetch(buildApiUrl('/items'));
+        if (!res.ok) throw new Error('โหลดสินค้าไม่สำเร็จ');
         if (res.ok) {
           const response = await res.json();
           if (isMounted) {
@@ -199,7 +200,7 @@ const Home = () => {
 
       try {
         const response = await fetch(
-          'http://localhost:5000/api/notifications',
+          buildApiUrl('/notifications'),
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -460,29 +461,29 @@ const Home = () => {
     }
 
     // 1. ชื่อสินค้าตรงคำค้น
-    if (title === correctedQuery) {
+    if (title === correctedQuery || title === query) {
       score += 200;
-    } else if (title.includes(correctedQuery)) {
+    } else if (title.includes(correctedQuery) || title.includes(query)) {
       score += 120;
     }
 
     // 2. keyword ของสินค้าตรงกับคำค้น
     // สำคัญมากสำหรับคำอย่าง "ดีดกีตาร์", "เครื่องฉาย", "ถ่ายภาพอากาศ"
     if (searchKeywords) {
-      if (searchKeywords.includes(correctedQuery)) {
+      if (searchKeywords.includes(correctedQuery) || searchKeywords.includes(query)) {
         score += 150;
       }
     }
 
     // 3. หมวดหมู่
-    if (categoryName === correctedQuery) {
+    if (categoryName === correctedQuery || categoryName === query) {
       score += 100;
-    } else if (categoryName.includes(correctedQuery)) {
+    } else if (categoryName.includes(correctedQuery) || categoryName.includes(query)) {
       score += 70;
     }
 
     // 4. description
-    if (description.includes(correctedQuery)) {
+    if (description.includes(correctedQuery) || description.includes(query)) {
       score += 50;
     }
 
@@ -638,7 +639,12 @@ const Home = () => {
               <p className="mt-1 text-xs text-slate-500">ค้นหาของที่ใช่ได้เร็วขึ้น</p>
             </div>
           </div>
-          <CategoryFilter selected={category as any} onSelect={(cat) => setCategory(cat as any)} />
+          <CategoryFilter selected={category} onSelect={setCategory} options={[
+            { value: 'ทั้งหมด', label: 'ทั้งหมด' },
+            ...Array.from(new Map(items.filter(item => item.category_id && item.category_name).map(item => [
+              String(item.category_id), { value: String(item.category_id), label: String(item.category_name) },
+            ])).values()),
+          ]} />
         </section>
 
         <section className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/60 sm:p-7 lg:p-8">
