@@ -1455,7 +1455,7 @@ const Transactions = () => {
                       className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all duration-200 hover:border-blue-200 hover:shadow-md md:p-5" >
                       <div className="flex items-start gap-4">
                         <img
-                          src={txn.item_image}
+                          src={toImageUrl(txn.item_image)}
                           alt={txn.item_title}
                           className="h-24 w-24 shrink-0 rounded-xl border border-slate-100 bg-slate-50 object-cover sm:h-28 sm:w-28"
                         />
@@ -2144,7 +2144,7 @@ const Transactions = () => {
                 <h3 className="font-semibold text-foreground">ข้อมูลสิ่งของและค่าเช่า</h3>
                 <div className="rounded-xl border border-border p-3">
                   <div className="flex gap-3">
-                    <img src={selectedTransaction.item_image} alt={selectedTransaction.item_title} className="h-16 w-16 rounded-lg object-cover" />
+                    <img src={toImageUrl(selectedTransaction.item_image)} alt={selectedTransaction.item_title} className="h-16 w-16 rounded-lg object-cover" />
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-foreground">{selectedTransaction.item_title}</p>
                       <p className="mt-1 text-xs text-muted-foreground">ระยะเวลาเช่า {selectedTransaction.total_days} วัน</p>
@@ -2599,7 +2599,7 @@ const Transactions = () => {
 
               <div className="flex items-center gap-3 rounded-xl border p-3">
                 <img
-                  src={reviewRental.item_image}
+                  src={toImageUrl(reviewRental.item_image)}
                   alt={reviewRental.item_title}
                   className="h-16 w-16 rounded-lg object-cover"
                 />
