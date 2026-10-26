@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import { apiGet, API_BASE_URL } from '@/lib/api';
 import { getAuthSession } from '@/lib/auth';
+import { getRentalDates } from '@/lib/rental-dates';
 import {
   Dialog,
   DialogContent,
@@ -52,6 +53,7 @@ const ItemDetail = () => {
 
   const [days, setDays] = useState(1);
   const [showAgreement, setShowAgreement] = useState(false);
+  const [agreementStart, setAgreementStart] = useState(() => new Date());
   const [agreementAccepted, setAgreementAccepted] = useState(false);
   const [lateFee, setLateFee] = useState('');
   const [user, setUser] = useState<any>(null);
@@ -241,8 +243,9 @@ const ItemDetail = () => {
   const totalRental = pricePerDay * days;
   const platformFee = Math.round(totalRental * PLATFORM_FEE_RATE);
   const totalPayment = totalRental;
-  const today = new Date().toISOString().split('T')[0];
-  const endDate = new Date(Date.now() + days * 86400000).toISOString().split('T')[0];
+  const rentalDates = getRentalDates(agreementStart, days);
+  const today = rentalDates.start_date;
+  const endDate = rentalDates.end_date;
 
   // ตรวจสอบและจัดการลิงก์รูปภาพให้ถูกต้อง
   const images: string[] = (Array.isArray(item.images) && item.images.length
@@ -279,6 +282,7 @@ const ItemDetail = () => {
       return;
     }
 
+    setAgreementStart(new Date());
     setShowAgreement(true);
   };
 
@@ -295,18 +299,6 @@ const ItemDetail = () => {
 
   const handleSubmitRequest = async () => {
     try {
-      const startDate = new Date();
-      const endDate = new Date(startDate);
-
-      endDate.setDate(startDate.getDate() + days - 1);
-
-      const formatDate = (date: Date) => {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-
-        return `${year}-${month}-${day}`;
-      };
       const token = localStorage.getItem('token');
 
       if (!token) {
@@ -322,8 +314,7 @@ const ItemDetail = () => {
         },
         body: JSON.stringify({
           item_id: item.item_id || item.id,
-          start_date: formatDate(startDate),
-          end_date: formatDate(endDate),
+          ...rentalDates,
           agreement_accepted: true,
           item_title: item.title,
           item_image: images[0],

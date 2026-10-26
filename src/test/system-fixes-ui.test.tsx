@@ -23,6 +23,7 @@ beforeEach(() => {
   Object.defineProperty(navigator, 'geolocation', { configurable: true, value: { getCurrentPosition: (success: (p: unknown) => void) => success({ coords: { latitude: 0, longitude: 100.1 } }) } });
 });
 afterEach(() => {
+  vi.useRealTimers();
   act(() => root.unmount()); container.remove(); vi.unstubAllGlobals(); vi.restoreAllMocks();
   if (originalLocation) Object.defineProperty(navigator, 'geolocation', originalLocation);
   else Reflect.deleteProperty(navigator, 'geolocation');
@@ -36,6 +37,29 @@ async function fill(selector: string, value: string) {
 }
 async function submit() { await act(async () => { container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); }); }
 describe('reported UI regressions', () => {
+  it.each([
+    { start: new Date(2026, 9, 27, 0, 30), days: 1, from: '2026-10-27', to: '2026-10-27' },
+    { start: new Date(2026, 9, 27, 6), days: 2, from: '2026-10-27', to: '2026-10-28' },
+    { start: new Date(2026, 11, 31, 23, 59), days: 2, from: '2026-12-31', to: '2027-01-01' },
+  ])('submits the dates shown in the agreement: $from to $to', async ({ start, days, from, to }) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(start);
+    localStorage.setItem('easy_to_locate_auth', JSON.stringify({ userId: 'qa-borrower', role: 'user', fullName: 'QA borrower' }));
+    localStorage.setItem('token', 'qa-token');
+    await act(async () => root.render(<MemoryRouter initialEntries={['/items/qa-item']}><Routes><Route path="/items/:id" element={<ItemDetail />} /></Routes></MemoryRouter>));
+    for (let i = 1; i < days; i++) {
+      await act(async () => { [...container.querySelectorAll('button')].find(b => b.textContent?.trim() === '+')!.click(); });
+    }
+    await act(async () => { [...container.querySelectorAll('button')].find(b => b.textContent?.trim() === 'ขอเช่า')!.click(); });
+    expect(document.body.textContent).toContain(`ระยะเวลา: ${from} ถึง ${to} (${days} วัน)`);
+    // Accepting after midnight must still submit the dates the borrower reviewed.
+    vi.setSystemTime(new Date(start.getTime() + 86400000));
+    await act(async () => { (document.querySelector('[role="checkbox"]') as HTMLButtonElement).click(); });
+    await act(async () => { [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === 'ยอมรับและดำเนินการต่อ')!.click(); });
+    const request = vi.mocked(fetch).mock.calls.find(([url, options]) => String(url).endsWith('/rentals') && options?.method === 'POST');
+    expect(request).toBeDefined();
+    expect(JSON.parse(String(request![1]!.body))).toMatchObject({ start_date: from, end_date: to, total_days: days });
+  });
   it('shows both item images and allows selecting the second', async () => {
     await act(async () => root.render(<MemoryRouter initialEntries={['/items/qa-item']}><Routes><Route path="/items/:id" element={<ItemDetail />} /></Routes></MemoryRouter>));
     expect(container.querySelector('img[alt="QA gallery"]')).toHaveAttribute('src', 'https://api.example.invalid/uploads/items/first.png');
