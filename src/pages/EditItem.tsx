@@ -48,7 +48,7 @@ const EditItem = () => {
                 const result = await response.json();
 
                 if (!response.ok || !result.success) {
-                    throw new Error(result.error || 'โหลดข้อมูลสินค้าไม่สำเร็จ');
+                    throw new Error(result.error || 'โหลดข้อมูลสิ่งของไม่สำเร็จ');
                 }
 
                 const item = result.data.find(
@@ -56,7 +56,7 @@ const EditItem = () => {
                 );
 
                 if (!item) {
-                    throw new Error('ไม่พบสินค้าหรือคุณไม่มีสิทธิ์แก้ไข');
+                    throw new Error('ไม่พบสิ่งของหรือคุณไม่มีสิทธิ์แก้ไข');
                 }
 
                 setForm({
@@ -130,7 +130,7 @@ const EditItem = () => {
 
             toast({
                 title: 'แก้ไขโพสต์สำเร็จ',
-                description: 'บันทึกข้อมูลสินค้าเรียบร้อยแล้ว',
+                description: 'บันทึกข้อมูลสิ่งของเรียบร้อยแล้ว',
             });
 
             navigate('/my-items');

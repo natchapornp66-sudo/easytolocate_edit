@@ -56,6 +56,8 @@ const ItemDetail = () => {
   const [lateFee, setLateFee] = useState('');
   const [user, setUser] = useState<any>(null);
   const [distanceKm, setDistanceKm] = useState<number | null>(null);
+  const [selectedImage, setSelectedImage] = useState(0);
+  useEffect(() => { setSelectedImage(0); }, [id]);
 
   // ดึงข้อมูล User จาก LocalStorage
   useEffect(() => {
@@ -74,7 +76,7 @@ const ItemDetail = () => {
     }
   }, []);
 
-  // ดึงข้อมูลสินค้าและรีวิวจาก API
+  // ดึงข้อมูลสิ่งของและรีวิวจาก API
   useEffect(() => {
     let isMounted = true;
 
@@ -82,7 +84,7 @@ const ItemDetail = () => {
       setIsLoading(true);
       setReviewsError('');
       try {
-        // 1. ดึงข้อมูลรายละเอียดสินค้า
+        // 1. ดึงข้อมูลรายละเอียดสิ่งของ
         const itemData = await apiGet<any>(
           `/api/items/${id}`
         );
@@ -92,7 +94,7 @@ const ItemDetail = () => {
           setItem(itemData.data || itemData);
         }
 
-        // 2. ดึงข้อมูลรีวิวของสินค้านี้
+        // 2. ดึงข้อมูลรีวิวของสิ่งของนี้
         try {
         const reviewsData = await apiGet<any>(
           `/api/items/${id}/reviews`
@@ -174,7 +176,7 @@ const ItemDetail = () => {
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <p className="text-sm text-muted-foreground">กำลังโหลดรายละเอียดสินค้า...</p>
+        <p className="text-sm text-muted-foreground">กำลังโหลดรายละเอียดสิ่งของ...</p>
       </div>
     );
   }
@@ -243,18 +245,14 @@ const ItemDetail = () => {
   const endDate = new Date(Date.now() + days * 86400000).toISOString().split('T')[0];
 
   // ตรวจสอบและจัดการลิงก์รูปภาพให้ถูกต้อง
-  let rawImage = item.image_url || item.image || (Array.isArray(item.images) ? item.images[0] : null);
-
-  // ถ้าเป็น example.com ให้ใช้รูปภาพ Placeholder ทั่วไป หรือดึงจาก Unsplash Source ตามชื่อสินค้า/หมวดหมู่แทน
-  if (!rawImage || rawImage.includes('example.com')) {
-    rawImage = `https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=500`; // ใช้รูปเครื่องมือช่าง/อุปกรณ์ทั่วไปแทน
-  } else if (!rawImage.startsWith('http') && !rawImage.startsWith('/')) {
-    rawImage = `${API_BASE_URL}/uploads/${rawImage}`;
-  } else if (rawImage.startsWith('/')) {
-    rawImage = `${API_BASE_URL}${rawImage}`;
-  }
-
-  const images = [rawImage];
+  const images: string[] = (Array.isArray(item.images) && item.images.length
+    ? item.images : [item.image_url || item.image]).map((image: unknown) => {
+      if (typeof image !== 'string' || !image || image.includes('example.com')) {
+        return 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=500';
+      }
+      if (/^https?:\/\//i.test(image)) return image;
+      return `${API_BASE_URL}${image.startsWith('/') ? '' : '/uploads/'}${image}`;
+    });
 
   const ownerName =
     item.lender_name ||
@@ -384,10 +382,21 @@ const ItemDetail = () => {
       {/* Image */}
       <div className="relative mx-auto mt-6 max-w-5xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
         <img
-          src={images[0]}
+          src={images[selectedImage] || images[0]}
           alt={item.title}
           className="h-72 w-full object-contain bg-slate-100 sm:h-96 lg:h-[480px]"
         />
+        {images.length > 1 && (
+          <div className="flex gap-2 overflow-x-auto p-3" aria-label="รูปสิ่งของทั้งหมด">
+            {images.map((image, index) => (
+              <button key={index} type="button" aria-label={`ดูรูปสิ่งของที่ ${index + 1}`}
+                aria-pressed={selectedImage === index} onClick={() => setSelectedImage(index)}
+                className={`shrink-0 rounded-lg border-2 p-1 ${selectedImage === index ? 'border-blue-600' : 'border-transparent'}`}>
+                <img src={image} alt={`${item.title} รูปที่ ${index + 1}`} className="h-16 w-20 object-contain" />
+              </button>
+            ))}
+          </div>
+        )}
 
         <button
           onClick={() => navigate(-1)}
@@ -490,7 +499,7 @@ const ItemDetail = () => {
               onClick={() => {
                 if (!ownerId) {
                   toast({
-                    title: 'ไม่พบข้อมูลเจ้าของสินค้า',
+                    title: 'ไม่พบข้อมูลเจ้าของสิ่งของ',
                     variant: 'destructive',
                   });
                   return;
@@ -792,7 +801,7 @@ const ItemDetail = () => {
               </p>
 
               <p className="mt-2 font-medium text-foreground">
-                ค่าปรับ: ผู้ให้เช่าจะเป็นผู้ประเมินเมื่อมีการคืนสินค้า
+                ค่าปรับ: ผู้ให้เช่าจะเป็นผู้ประเมินเมื่อมีการคืนสิ่งของ
               </p>
             </div>
 

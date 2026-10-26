@@ -16,7 +16,7 @@ const ItemImagePreview = ({ file, index }: { file: File; index: number }) => {
     const objectUrl = URL.createObjectURL(file); setUrl(objectUrl);
     return () => URL.revokeObjectURL(objectUrl);
   }, [file]);
-  return <img src={url} alt={`รูปสินค้า ${index + 1}`} className="h-full w-full object-cover" />;
+  return <img src={url} alt={`รูปสิ่งของ ${index + 1}`} className="h-full w-full object-cover" />;
 };
 
 const PostItem = () => {
@@ -133,7 +133,7 @@ const PostItem = () => {
     setIsSubmitting(true);
 
     try {
-      // 1. อัปโหลดรูปภาพก่อนบันทึกสินค้า
+      // 1. อัปโหลดรูปภาพก่อนบันทึกสิ่งของ
       let uploadedImages: string[] = [];
 
       if (selectedImages.length > 0) {
@@ -291,7 +291,7 @@ const PostItem = () => {
 
                     <button
                       type="button"
-                      aria-label={`ลบรูปสินค้า ${index + 1}`}
+                      aria-label={`ลบรูปสิ่งของ ${index + 1}`}
                       onClick={() =>
                         setSelectedImages((prev) =>
                           prev.filter((_, i) => i !== index)

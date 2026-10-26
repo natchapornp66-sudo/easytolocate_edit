@@ -31,7 +31,7 @@ export const AgreementView: React.FC<{ rentalId: string; isLender: boolean }> = 
 
     return (
         <div className="p-4 border rounded-lg max-w-lg">
-            <h2 className="text-xl font-bold mb-2">สัญญาการเช่าสินค้า</h2>
+            <h2 className="text-xl font-bold mb-2">สัญญาการเช่าสิ่งของ</h2>
             <p className="bg-gray-50 p-3 rounded mb-4 text-sm">{agreement.contract_terms}</p>
 
             <div className="space-y-2 mb-4">

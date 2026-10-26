@@ -73,12 +73,12 @@ const ItemCard = ({ item }: ItemCardProps) => {
       type="button"
       onClick={() => navigate(`/item/${itemId}`)}
       className="group flex h-full w-full flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white text-left shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-xl hover:shadow-slate-200/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-      aria-label={`ดูรายละเอียด ${item.title || 'สินค้า'}`}
+      aria-label={`ดูรายละเอียด ${item.title || 'สิ่งของ'}`}
     >
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-slate-100">
         <img
           src={getItemImageUrl(item)}
-          alt={item.title || 'สินค้า'}
+          alt={item.title || 'สิ่งของ'}
           loading="lazy"
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
           onError={(e) => {
@@ -110,7 +110,7 @@ const ItemCard = ({ item }: ItemCardProps) => {
         </div>
 
         <h3 className="line-clamp-2 min-h-[2.5rem] text-sm font-bold leading-5 text-slate-900 sm:text-[15px]">
-          {item.title || 'ไม่มีชื่อสินค้า'}
+          {item.title || 'ไม่มีชื่อสิ่งของ'}
         </h3>
         {ownerName && <p className="mt-1 truncate text-xs text-slate-500">ผู้ให้เช่า: {ownerName}</p>}
 

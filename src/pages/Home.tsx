@@ -83,7 +83,7 @@ const Home = () => {
     );
   }, []);
 
-  // โหลดสินค้า
+  // โหลดสิ่งของ
   useEffect(() => {
     let isMounted = true;
 
@@ -92,7 +92,7 @@ const Home = () => {
     const loadItems = async () => {
       try {
         const res = await fetch(buildApiUrl('/items'));
-        if (!res.ok) throw new Error('โหลดสินค้าไม่สำเร็จ');
+        if (!res.ok) throw new Error('โหลดสิ่งของไม่สำเร็จ');
         if (res.ok) {
           const response = await res.json();
           if (isMounted) {
@@ -111,7 +111,7 @@ const Home = () => {
               title:
                 item.title ||
                 item.name ||
-                'ไม่มีชื่อสินค้า',
+                'ไม่มีชื่อสิ่งของ',
 
               price_per_day: Number(
                 item.daily_price ??
@@ -172,7 +172,7 @@ const Home = () => {
         }
       } catch (err) {
         if (isMounted) {
-          setError('ไม่สามารถโหลดรายการสินค้าได้ในขณะนี้');
+          setError('ไม่สามารถโหลดรายการสิ่งของได้ในขณะนี้');
         }
       } finally {
         if (isMounted) {
@@ -235,7 +235,7 @@ const Home = () => {
       .toLowerCase()
       .trim();
 
-  // คำค้นที่ผู้ใช้อาจพิมพ์ → คำที่ควรนำไปค้นสินค้า
+  // คำค้นที่ผู้ใช้อาจพิมพ์ → คำที่ควรนำไปค้นสิ่งของ
   const searchIntents: Record<string, string[]> = {
     // กล้อง / ถ่ายภาพ
     'ถ่ายรูป': [
@@ -431,7 +431,7 @@ const Home = () => {
     ],
   };
 
-  // คืนคะแนนความเกี่ยวข้องของสินค้า
+  // คืนคะแนนความเกี่ยวข้องของสิ่งของ
   const getSearchScore = (item: any, rawQuery: string) => {
     const query = normalizeText(rawQuery);
 
@@ -460,14 +460,14 @@ const Home = () => {
       }
     }
 
-    // 1. ชื่อสินค้าตรงคำค้น
+    // 1. ชื่อสิ่งของตรงคำค้น
     if (title === correctedQuery || title === query) {
       score += 200;
     } else if (title.includes(correctedQuery) || title.includes(query)) {
       score += 120;
     }
 
-    // 2. keyword ของสินค้าตรงกับคำค้น
+    // 2. keyword ของสิ่งของตรงกับคำค้น
     // สำคัญมากสำหรับคำอย่าง "ดีดกีตาร์", "เครื่องฉาย", "ถ่ายภาพอากาศ"
     if (searchKeywords) {
       if (searchKeywords.includes(correctedQuery) || searchKeywords.includes(query)) {
@@ -621,7 +621,7 @@ const Home = () => {
             <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
             <Input
               type="text"
-              aria-label="ค้นหาสินค้าให้เช่า"
+              aria-label="ค้นหาสิ่งของให้เช่า"
               placeholder="ลองค้นหา กล้อง, สว่าน, เต็นท์ หรือ PS5..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -652,7 +652,7 @@ const Home = () => {
             <div>
               <h2 className="text-lg font-extrabold text-slate-900 sm:text-xl">สำรวจสิ่งของให้เช่า</h2>
               <p className="mt-1 text-sm text-slate-500">
-                {isLoading ? 'กำลังค้นหาสินค้า...' : `พบ ${filtered.length} รายการที่ตรงกับการค้นหา`}
+                {isLoading ? 'กำลังค้นหาสิ่งของ...' : `พบ ${filtered.length} รายการที่ตรงกับการค้นหา`}
               </p>
             </div>
             <div className="relative">
@@ -690,7 +690,7 @@ const Home = () => {
 
           {isLoading && (
             <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
-              กำลังโหลดรายการสินค้า...
+              กำลังโหลดรายการสิ่งของ...
             </div>
           )}
           {!isLoading && error && (

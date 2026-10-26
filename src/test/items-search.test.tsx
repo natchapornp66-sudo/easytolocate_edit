@@ -21,7 +21,7 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 async function render(page: React.ReactNode) { await act(async () => { root.render(<MemoryRouter>{page}</MemoryRouter>); }); }
 async function search(value: string) {
- const input = container.querySelector('input[aria-label="ค้นหาสินค้าให้เช่า"]') as HTMLInputElement;
+ const input = container.querySelector('input[aria-label="ค้นหาสิ่งของให้เช่า"]') as HTMLInputElement;
  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true })); });
 }
 describe('listing search and forms', () => {

@@ -42,7 +42,7 @@ const MyItems = () => {
                 const result = await response.json();
 
                 if (!response.ok || !result.success) {
-                    throw new Error(result.error || 'โหลดรายการสินค้าไม่สำเร็จ');
+                    throw new Error(result.error || 'โหลดรายการสิ่งของไม่สำเร็จ');
                 }
 
                 setItems(result.data);
@@ -131,8 +131,8 @@ const MyItems = () => {
 
         const confirmed = window.confirm(
             newStatus === 'inactive'
-                ? 'คุณต้องการปิดการให้เช่าสินค้านี้ชั่วคราวใช่หรือไม่?'
-                : 'คุณต้องการเปิดให้เช่าสินค้านี้อีกครั้งใช่หรือไม่?'
+                ? 'คุณต้องการปิดการให้เช่าสิ่งของนี้ชั่วคราวใช่หรือไม่?'
+                : 'คุณต้องการเปิดให้เช่าสิ่งของนี้อีกครั้งใช่หรือไม่?'
         );
 
         if (!confirmed) return;
@@ -165,7 +165,7 @@ const MyItems = () => {
 
             if (!response.ok || !result.success) {
                 throw new Error(
-                    result.error || 'เปลี่ยนสถานะสินค้าไม่สำเร็จ'
+                    result.error || 'เปลี่ยนสถานะสิ่งของไม่สำเร็จ'
                 );
             }
 
@@ -252,7 +252,7 @@ const MyItems = () => {
 
                     {loading && (
                         <p className="text-sm text-muted-foreground">
-                            กำลังโหลดรายการสินค้า...
+                            กำลังโหลดรายการสิ่งของ...
                         </p>
                     )}
 

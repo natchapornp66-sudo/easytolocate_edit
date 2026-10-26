@@ -18,7 +18,7 @@ export const ItemList: React.FC = () => {
             });
     }, []);
 
-    if (loading) return <div>กำลังโหลดข้อมูลสินค้า...</div>;
+    if (loading) return <div>กำลังโหลดข้อมูลสิ่งของ...</div>;
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
